@@ -1,0 +1,4 @@
+(executable
+ (name main)
+ (modules main cmdline frontend logging localizer)
+ (libraries str cil cil.all-features))
