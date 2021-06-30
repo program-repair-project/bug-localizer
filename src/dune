@@ -1,4 +1,4 @@
 (executable
  (name main)
- (modules main cmdline frontend logging localizer)
- (libraries str cil cil.all-features))
+ (modules main cmdline frontend logging localizer coverage)
+ (libraries str cil cil.all-features xmlm))

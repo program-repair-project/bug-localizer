@@ -1,19 +1,24 @@
 module F = Format
 
-let initialize () =
-  (try Unix.mkdir !Cmdline.out_dir 0o775
-   with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
-  print_endline ("Logging to " ^ !Cmdline.out_dir);
+let initialize work_dir =
+  let out_dir = Filename.concat work_dir !Cmdline.out_dir in
+  (try Unix.mkdir out_dir 0o775 with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
+  print_endline ("Logging to " ^ out_dir);
   Logging.log_file :=
-    Filename.concat !Cmdline.out_dir "log.txt" |> open_out |> Option.some;
+    Filename.concat out_dir "log.txt" |> open_out |> Option.some;
   Logging.log_formatter :=
     Option.map F.formatter_of_out_channel !Logging.log_file
 
 let main () =
   let usageMsg = "Usage: bug-localizer [options] source-files" in
   Arg.parse Cmdline.options Cmdline.parse_arg usageMsg;
-  let file = Frontend.parse () in
-  let result = Localizer.run file in
-  Localizer.print result
+  match !Cmdline.work_dir with
+  | None ->
+      prerr_endline "Error: No work directory is given";
+      exit 1
+  | Some work_dir ->
+      initialize work_dir;
+      let result = Localizer.run work_dir in
+      Localizer.print result
 
 let _ = main ()
