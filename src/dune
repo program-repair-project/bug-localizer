@@ -1,4 +1,5 @@
 (executable
  (name main)
+ (link_flags -ccopt -static)
  (modules main cmdline frontend logging localizer coverage)
- (libraries str cil cil.all-features xmlm))
+ (libraries str cil cil.all-features xmlm unix))
