@@ -27,6 +27,6 @@ fi
 eval $(SHELL=bash opam config env --switch=$SPARROW_OPAM_SWITCH)
 
 opam pin add cil https://github.com/prosyslab/cil.git -n
-opam install -j $NCPU dune batteries cil ppx_compare ocamlformat merlin
+opam install -j $NCPU dune batteries cil ppx_compare ocamlformat merlin yojson xmlm
 
 make

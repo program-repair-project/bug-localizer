@@ -1,0 +1,11 @@
+{
+  "compiler": {
+    "time-limit": 300,
+    "type": "compile"
+  },
+  "test-harness": {
+    "failing": 1,
+    "passing": 5,
+    "time-limit": 300
+  }
+}

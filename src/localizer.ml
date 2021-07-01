@@ -8,7 +8,10 @@ end
 
 let run work_dir =
   Logging.log "Start localization";
-  let coverage = Coverage.run work_dir [ "p1"; "p2"; "n1" ] in
+  let bug_desc = BugDesc.read work_dir in
+  Logging.log "Bug desc: %a" BugDesc.pp bug_desc;
+  let coverage = Coverage.run work_dir bug_desc in
+  Logging.log "Coverage: %a" Coverage.pp coverage;
   List.fold_left
     (fun locs elem ->
       Coverage.StrMap.fold

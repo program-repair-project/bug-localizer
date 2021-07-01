@@ -97,7 +97,7 @@ module Scenario = struct
     }
 end
 
-let compile compile_script =
+let simple_compiler compile_script =
   Unix.create_process compile_script [| compile_script |] Unix.stdin Unix.stdout
     Unix.stderr
   |> ignore;
@@ -106,6 +106,49 @@ let compile compile_script =
   | Unix.WEXITED n ->
       failwith ("Error " ^ string_of_int n ^ ": " ^ compile_script ^ " failed")
   | _ -> failwith (compile_script ^ " failed")
+
+let make () =
+  Unix.create_process "make" [| "make"; "-j" |] Unix.stdin Unix.stdout
+    Unix.stderr
+  |> ignore;
+  match Unix.wait () |> snd with
+  | Unix.WEXITED 0 -> ()
+  | Unix.WEXITED n -> failwith ("Error " ^ string_of_int n ^ ": make failed")
+  | _ -> failwith "make failed"
+
+let configure () =
+  Array.iter prerr_endline
+    [|
+      "./configure";
+      "CFLAGS=--coverage";
+      "CXXFLAGS=--coverage";
+      "LDFLAGS=-lgcov";
+    |];
+  Unix.create_process "./configure"
+    [|
+      "./configure";
+      "CFLAGS=--coverage";
+      "CXXFLAGS=--coverage";
+      "LDFLAGS=-lgcov";
+    |]
+    Unix.stdin Unix.stdout Unix.stderr
+  |> ignore;
+  match Unix.wait () |> snd with
+  | Unix.WEXITED 0 -> ()
+  | Unix.WEXITED n ->
+      failwith ("Error " ^ string_of_int n ^ ": configure failed")
+  | _ -> failwith "configure failed"
+
+let configure_and_make () =
+  Unix.chdir "src";
+  configure ();
+  make ()
+
+let compile scenario compiler_type =
+  match compiler_type with
+  | "compile" -> simple_compiler scenario.Scenario.compile_script
+  | "configure-and-make" -> configure_and_make ()
+  | _ -> failwith "Unknown compiler"
 
 let run_test test_script name =
   Unix.create_process test_script [| test_script; name |] Unix.stdin Unix.stdout
@@ -129,13 +172,16 @@ let update_coverage coverage_data test coverage =
   let elem = elem_of_xml (elem_of test) xml in
   elem :: coverage
 
-let run work_dir tests =
+let run work_dir bug_desc =
   let scenario = Scenario.init work_dir in
-  Unix.chdir work_dir;
-  compile scenario.compile_script;
+  Unix.chdir scenario.work_dir;
+  Logging.log "Start compile";
+  compile scenario bug_desc.BugDesc.compiler_type;
+  Unix.chdir scenario.work_dir;
+  Logging.log "Start test";
   List.fold_left
     (fun coverage test ->
       run_test scenario.test_script test;
       compute_coverage scenario.coverage_data;
       update_coverage scenario.coverage_data test coverage)
-    empty tests
+    empty bug_desc.BugDesc.test_cases
