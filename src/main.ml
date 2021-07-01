@@ -10,7 +10,7 @@ let initialize work_dir =
     Option.map F.formatter_of_out_channel !Logging.log_file
 
 let main () =
-  let usageMsg = "Usage: bug-localizer [options] source-files" in
+  let usageMsg = "Usage: localizer [options] [work dir]" in
   Arg.parse Cmdline.options Cmdline.parse_arg usageMsg;
   match !Cmdline.work_dir with
   | None ->
