@@ -6,10 +6,7 @@ module BugLocation = struct
   let pp fmt (l, score) = F.fprintf fmt "%s:%d\t%f" l.Cil.file l.Cil.line score
 end
 
-let run work_dir =
-  Logging.log "Start localization";
-  let bug_desc = BugDesc.read work_dir in
-  Logging.log "Bug desc: %a" BugDesc.pp bug_desc;
+let dummy_localizer work_dir bug_desc =
   let coverage = Coverage.run work_dir bug_desc in
   Logging.log "Coverage: %a" Coverage.pp coverage;
   List.fold_left
@@ -22,6 +19,14 @@ let run work_dir =
           locs @ new_locs)
         elem.Coverage.coverage locs)
     [] coverage
+
+let run work_dir =
+  Logging.log "Start localization";
+  let bug_desc = BugDesc.read work_dir in
+  Logging.log "Bug desc: %a" BugDesc.pp bug_desc;
+  match !Cmdline.engine with
+  | Cmdline.Tarantula -> failwith "Not implemented"
+  | Cmdline.Dummy -> dummy_localizer work_dir bug_desc
 
 let print locations =
   let oc = Filename.concat !Cmdline.out_dir "result.txt" |> open_out in
