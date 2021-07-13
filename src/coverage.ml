@@ -175,9 +175,10 @@ let update_coverage coverage_data test coverage =
 let run work_dir bug_desc =
   let scenario = Scenario.init work_dir in
   Unix.chdir scenario.work_dir;
-  Logging.log "Start compile";
-  compile scenario bug_desc.BugDesc.compiler_type;
-  Unix.chdir scenario.work_dir;
+  if not !Cmdline.skip_compile then (
+    Logging.log "Start compile";
+    compile scenario bug_desc.BugDesc.compiler_type;
+    Unix.chdir scenario.work_dir );
   Logging.log "Start test";
   List.fold_left
     (fun coverage test ->
