@@ -38,18 +38,11 @@ let make () =
   | _ -> failwith "make failed"
 
 let configure () =
-  Array.iter prerr_endline
-    [|
-      "./configure";
-      "CFLAGS=--coverage";
-      "CXXFLAGS=--coverage";
-      "LDFLAGS=-lgcov";
-    |];
   Unix.create_process "./configure"
     [|
       "./configure";
-      "CFLAGS=--coverage";
-      "CXXFLAGS=--coverage";
+      "CFLAGS=--coverage --save-temps";
+      "CXXFLAGS=--coverage --save-temps";
       "LDFLAGS=-lgcov";
     |]
     Unix.stdin Unix.stdout Unix.stderr

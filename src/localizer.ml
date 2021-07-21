@@ -7,9 +7,21 @@ module BugLocation = struct
   let pp fmt (l, score) = F.fprintf fmt "%s:%d\t%f" l.Cil.file l.Cil.line score
 end
 
+let copy_src () =
+  Unix.create_process "cp"
+    [| "cp"; "-rf"; "src"; !Cmdline.out_dir |]
+    Unix.stdin Unix.stdout Unix.stderr
+  |> ignore;
+
+  match Unix.wait () |> snd with
+  | Unix.WEXITED 0 -> ()
+  | Unix.WEXITED n -> failwith ("Error " ^ string_of_int n ^ ": copy failed")
+  | _ -> failwith "copy failed"
+
 let dummy_localizer work_dir bug_desc =
   let coverage = LineCoverage.run work_dir bug_desc in
   Logging.log "Coverage: %a" LineCoverage.pp coverage;
+  copy_src ();
   List.fold_left
     (fun locs elem ->
       Coverage.StrMap.fold
