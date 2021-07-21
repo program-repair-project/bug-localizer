@@ -1,4 +1,5 @@
 module F = Format
+module LineCoverage = Coverage.LineCoverage
 
 module BugLocation = struct
   type t = Cil.location * float
@@ -7,8 +8,8 @@ module BugLocation = struct
 end
 
 let dummy_localizer work_dir bug_desc =
-  let coverage = Coverage.run work_dir bug_desc in
-  Logging.log "Coverage: %a" Coverage.pp coverage;
+  let coverage = LineCoverage.run work_dir bug_desc in
+  Logging.log "Coverage: %a" LineCoverage.pp coverage;
   List.fold_left
     (fun locs elem ->
       Coverage.StrMap.fold
@@ -17,7 +18,7 @@ let dummy_localizer work_dir bug_desc =
             List.map (fun line -> ({ Cil.file; line; byte = 0 }, 0.0)) lines
           in
           locs @ new_locs)
-        elem.Coverage.coverage locs)
+        elem.LineCoverage.coverage locs)
     [] coverage
 
 let run work_dir =

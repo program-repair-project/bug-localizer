@@ -1,0 +1,78 @@
+type t = {
+  work_dir : string;
+  compile_script : string;
+  test_script : string;
+  coverage_data : string;
+}
+
+let init work_dir =
+  let work_dir =
+    if Filename.is_relative work_dir then
+      Filename.concat (Unix.getcwd ()) work_dir
+    else work_dir
+  in
+  {
+    work_dir;
+    compile_script = Filename.concat work_dir "compile.sh";
+    test_script = Filename.concat work_dir "test.sh";
+    coverage_data = Filename.concat work_dir "coverage.xml";
+  }
+
+let simple_compiler compile_script =
+  Unix.create_process compile_script [| compile_script |] Unix.stdin Unix.stdout
+    Unix.stderr
+  |> ignore;
+  match Unix.wait () |> snd with
+  | Unix.WEXITED 0 -> ()
+  | Unix.WEXITED n ->
+      failwith ("Error " ^ string_of_int n ^ ": " ^ compile_script ^ " failed")
+  | _ -> failwith (compile_script ^ " failed")
+
+let make () =
+  Unix.create_process "make" [| "make"; "-j" |] Unix.stdin Unix.stdout
+    Unix.stderr
+  |> ignore;
+  match Unix.wait () |> snd with
+  | Unix.WEXITED 0 -> ()
+  | Unix.WEXITED n -> failwith ("Error " ^ string_of_int n ^ ": make failed")
+  | _ -> failwith "make failed"
+
+let configure () =
+  Array.iter prerr_endline
+    [|
+      "./configure";
+      "CFLAGS=--coverage";
+      "CXXFLAGS=--coverage";
+      "LDFLAGS=-lgcov";
+    |];
+  Unix.create_process "./configure"
+    [|
+      "./configure";
+      "CFLAGS=--coverage";
+      "CXXFLAGS=--coverage";
+      "LDFLAGS=-lgcov";
+    |]
+    Unix.stdin Unix.stdout Unix.stderr
+  |> ignore;
+  match Unix.wait () |> snd with
+  | Unix.WEXITED 0 -> ()
+  | Unix.WEXITED n ->
+      failwith ("Error " ^ string_of_int n ^ ": configure failed")
+  | _ -> failwith "configure failed"
+
+let configure_and_make () =
+  Unix.chdir "src";
+  configure ();
+  make ()
+
+let compile scenario compiler_type =
+  match compiler_type with
+  | "compile" -> simple_compiler scenario.compile_script
+  | "configure-and-make" -> configure_and_make ()
+  | _ -> failwith "Unknown compiler"
+
+let run_test test_script name =
+  Unix.create_process test_script [| test_script; name |] Unix.stdin Unix.stdout
+    Unix.stderr
+  |> ignore;
+  Unix.wait () |> ignore

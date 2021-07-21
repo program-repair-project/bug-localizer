@@ -1,5 +1,5 @@
 (executable
  (name main)
  (link_flags -ccopt -static)
- (modules main cmdline frontend logging localizer coverage bugDesc)
+ (modules main cmdline frontend logging localizer coverage bugDesc scenario)
  (libraries str cil cil.all-features xmlm unix yojson))
