@@ -4,13 +4,14 @@ let out_dir = ref "localizer-out"
 
 let skip_compile = ref false
 
-type engine = Tarantula | Dummy
+type engine = Tarantula | Prophet | Dummy
 
 let engine = ref Dummy
 
 let select_engine s =
   match s with
   | "tarantula" -> engine := Tarantula
+  | "prophet" -> engine := Prophet
   | "dummy" -> engine := Dummy
   | _ -> failwith "Unknown engine"
 
