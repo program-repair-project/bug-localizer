@@ -2,6 +2,8 @@ let work_dir : string option ref = ref None
 
 let out_dir = ref "localizer-out"
 
+let instrument = ref false
+
 let skip_compile = ref false
 
 type engine = Tarantula | Prophet | Dummy
@@ -18,6 +20,7 @@ let select_engine s =
 let options =
   [
     ("-outdir", Arg.Set_string out_dir, "Output directory");
+    ("-instrument", Arg.Set instrument, "Instrument based on Sparrow results");
     ("-skip_compile", Arg.Set skip_compile, "Skip compilation");
     ( "-engine",
       Arg.String select_engine,

@@ -16,6 +16,9 @@ let main () =
   | None ->
       prerr_endline "Error: No work directory is given";
       exit 1
+  | Some work_dir when !Cmdline.instrument ->
+      initialize work_dir;
+      Instrument.run work_dir
   | Some work_dir ->
       initialize work_dir;
       let result = Localizer.run work_dir in
