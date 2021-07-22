@@ -1,0 +1,22 @@
+name: check
+
+on: [push, pull_request]
+
+jobs:
+  check:
+    name: check-format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up OCaml
+        uses: ocaml/setup-ocaml@v2
+        with:
+          ocaml-compiler: 4.11.0
+
+      - name: Install dependencies
+        run: opam install ocamlformat.0.18.0
+
+      - name: Check format
+        run: script/check-format
