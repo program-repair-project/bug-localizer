@@ -82,6 +82,13 @@ let read_duedges nodes file =
   close_in ic;
   x
 
+type dfsan_funs = {
+  create_label : Cil.varinfo;
+  set_label : Cil.varinfo;
+  get_label : Cil.varinfo;
+  has_label : Cil.varinfo;
+}
+
 let initialize work_dir =
   let result_file = Filename.concat work_dir "result.txt" in
   let sparrow_out_dir = Filename.concat work_dir "src/sparrow-out" in
@@ -94,23 +101,59 @@ let initialize work_dir =
   let duedges = read_duedges nodes duedge_file in
   (nodes, lines, duedges)
 
-let instrument file pp_file nodes edges =
+let rec instrument_instr dfsan_funs edges instrs results =
+  match instrs with
+  | (Cil.Set ((Var vi, NoOffset), _, loc) as i) :: tl ->
+      let name = Cil.mkString vi.vname in
+      Cil.Call
+        ( None,
+          Cil.Lval (Cil.Var dfsan_funs.create_label, Cil.NoOffset),
+          [ name; Cil.zero ],
+          loc )
+      :: i :: results
+      |> instrument_instr dfsan_funs edges tl
+  | i :: tl -> i :: results |> instrument_instr dfsan_funs edges tl
+  | [] -> List.rev results
+
+class assignVisitor dfsan_funs edges =
+  object
+    inherit Cil.nopCilVisitor
+
+    method! vstmt s =
+      match s.Cil.skind with
+      | Cil.Instr i ->
+          s.Cil.skind <- Cil.Instr (instrument_instr dfsan_funs edges i []);
+          DoChildren
+      | _ -> DoChildren
+  end
+
+let instrument file pp_file _ edges =
   Logging.log "Instrument %s (%s)" file pp_file;
   let cil = Frontc.parse pp_file () in
-  List.iter
-    (fun (src, dst) ->
-      let src_node, dst_node =
-        (NodeInfoMap.find src nodes, NodeInfoMap.find dst nodes)
-      in
-      if NodeInfo.cmd_of src_node = "skip" || NodeInfo.cmd_of dst_node = "skip"
-      then ()
-      else Logging.log "Edge (%s, %s)" src dst;
-      ())
-    edges
+  let dfsan_funs =
+    {
+      create_label =
+        Cil.findOrCreateFunc cil "dfsan_create_label"
+          (Cil.TFun (Cil.voidType, None, false, []));
+      set_label =
+        Cil.findOrCreateFunc cil "dfsan_set_label"
+          (Cil.TFun (Cil.voidType, None, false, []));
+      get_label =
+        Cil.findOrCreateFunc cil "dfsan_get_label"
+          (Cil.TFun (Cil.voidType, None, false, []));
+      has_label =
+        Cil.findOrCreateFunc cil "dfsan_has_label"
+          (Cil.TFun (Cil.voidType, None, false, []));
+    }
+  in
+  Cil.visitCilFile (new assignVisitor dfsan_funs edges) cil;
+  let oc = open_out pp_file in
+  Cil.dumpFile !Cil.printerForMaincil oc "" cil;
+  close_out oc
 
 let run work_dir =
   Cil.initCIL ();
-  let nodes, lines, duedges = initialize work_dir in
+  let nodes, _, duedges = initialize work_dir in
   let src_dir = Filename.concat work_dir "src" in
   FileToEdges.iter
     (fun file edges ->
