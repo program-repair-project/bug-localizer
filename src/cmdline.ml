@@ -2,11 +2,19 @@ let work_dir : string option ref = ref None
 
 let out_dir = ref "localizer-out"
 
-let instrument = ref false
+type instrument = DfSan | GSA | Nothing
+
+let instrument = ref Nothing
+
+let select_instrument s =
+  match s with
+  | "dfsan" -> instrument := DfSan
+  | "gsa" -> instrument := GSA
+  | _ -> failwith "Unknown instrument"
 
 let skip_compile = ref false
 
-type engine = Tarantula | Prophet | Dummy
+type engine = Tarantula | Prophet | Dummy | UniVal
 
 let engine = ref Dummy
 
@@ -15,12 +23,15 @@ let select_engine s =
   | "tarantula" -> engine := Tarantula
   | "prophet" -> engine := Prophet
   | "dummy" -> engine := Dummy
+  | "unival" -> engine := UniVal
   | _ -> failwith "Unknown engine"
 
 let options =
   [
     ("-outdir", Arg.Set_string out_dir, "Output directory");
-    ("-instrument", Arg.Set instrument, "Instrument based on Sparrow results");
+    ( "-instrument",
+      Arg.String select_instrument,
+      "Specify instrument method (default: Nothing)" );
     ("-skip_compile", Arg.Set skip_compile, "Skip compilation");
     ( "-engine",
       Arg.String select_engine,
