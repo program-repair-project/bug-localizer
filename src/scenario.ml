@@ -53,8 +53,30 @@ let configure () =
       failwith ("Error " ^ string_of_int n ^ ": configure failed")
   | _ -> failwith "configure failed"
 
+let make_clean () =
+  Unix.create_process "make" [| "make"; "clean" |] Unix.stdin Unix.stdout
+    Unix.stderr
+  |> ignore;
+  match Unix.wait () |> snd with
+  | Unix.WEXITED 0 -> ()
+  | Unix.WEXITED n ->
+      failwith ("Error " ^ string_of_int n ^ ": make clean failed")
+  | _ -> failwith "make clean failed"
+
+let make_distclean () =
+  Unix.create_process "make" [| "make"; "distclean" |] Unix.stdin Unix.stdout
+    Unix.stderr
+  |> ignore;
+  match Unix.wait () |> snd with
+  | Unix.WEXITED 0 -> ()
+  | Unix.WEXITED n ->
+      failwith ("Error " ^ string_of_int n ^ ": make distclean failed")
+  | _ -> failwith "make distclean failed"
+
 let configure_and_make () =
   Unix.chdir "src";
+  make_clean ();
+  make_distclean ();
   configure ();
   make ()
 
