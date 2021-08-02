@@ -119,6 +119,8 @@ let tarantula_localizer work_dir bug_desc =
       if s23 > s13 then 1 else if s23 = s13 then 0 else -1)
     taran_loc
 
+let unival_localizer work_dir bug_desc = failwith "Not implemented"
+
 let run work_dir =
   Logging.log "Start localization";
   let bug_desc = BugDesc.read work_dir in
@@ -127,6 +129,7 @@ let run work_dir =
   | Cmdline.Tarantula -> tarantula_localizer work_dir bug_desc
   | Cmdline.Prophet -> prophet_localizer work_dir bug_desc
   | Cmdline.Dummy -> dummy_localizer work_dir bug_desc
+  | Cmdline.UniVal -> unival_localizer work_dir bug_desc
 
 let print locations =
   let oc = Filename.concat !Cmdline.out_dir "result.txt" |> open_out in
