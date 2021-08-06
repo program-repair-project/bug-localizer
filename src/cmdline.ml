@@ -14,7 +14,7 @@ let select_instrument s =
 
 let skip_compile = ref false
 
-type engine = Tarantula | Prophet | Dummy | UniVal
+type engine = Tarantula | Prophet | Jaccard | Ochiai | Dummy | UniVal
 
 let engine = ref Dummy
 
@@ -22,6 +22,8 @@ let select_engine s =
   match s with
   | "tarantula" -> engine := Tarantula
   | "prophet" -> engine := Prophet
+  | "jaccard" -> engine := Jaccard
+  | "ochiai" -> engine := Ochiai
   | "dummy" -> engine := Dummy
   | "unival" -> engine := UniVal
   | _ -> failwith "Unknown engine"

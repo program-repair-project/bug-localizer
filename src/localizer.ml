@@ -110,7 +110,6 @@ let tarantula_localizer work_dir bug_desc =
         let denom1 = nef /. (nef +. nnf) in
         let denom2 = nep /. (nep +. nnp) in
         let score = numer /. (denom1 +. denom2) in
-        print_endline (string_of_float score);
         (l, s1, s2, score))
       locations
   in
@@ -118,6 +117,76 @@ let tarantula_localizer work_dir bug_desc =
     (fun (_, _, _, s13) (_, _, _, s23) ->
       if s23 > s13 then 1 else if s23 = s13 then 0 else -1)
     taran_loc
+
+let ochiai_localizer work_dir bug_desc =
+  let locations = spec_localizer work_dir bug_desc in
+  let test_cases = bug_desc.BugDesc.test_cases in
+  let pos_num =
+    List.fold_left
+      (fun acc t ->
+        let regexp_pos = Str.regexp "p.*" in
+        if Str.string_match regexp_pos t 0 then acc + 1 else acc)
+      0 test_cases
+  in
+  let neg_num =
+    List.fold_left
+      (fun acc t ->
+        let regexp_neg = Str.regexp "n.*" in
+        if Str.string_match regexp_neg t 0 then acc + 1 else acc)
+      0 test_cases
+  in
+  let ochiai_loc =
+    List.map
+      (fun (l, s1, s2, _) ->
+        let nep = s2 in
+        let nnp = float_of_int pos_num -. s2 in
+        let nef = s1 in
+        let nnf = float_of_int neg_num -. s1 in
+        let sub_denom1 = nef +. nnf in
+        let sub_denom2 = nef +. nep in
+        let denom = sqrt (sub_denom1 *. sub_denom2) in
+        let score = nef /. denom in
+        (l, s1, s2, score))
+      locations
+  in
+  List.stable_sort
+    (fun (_, _, _, s13) (_, _, _, s23) ->
+      if s23 > s13 then 1 else if s23 = s13 then 0 else -1)
+    ochiai_loc
+
+let jaccard_localizer work_dir bug_desc =
+  let locations = spec_localizer work_dir bug_desc in
+  let test_cases = bug_desc.BugDesc.test_cases in
+  let pos_num =
+    List.fold_left
+      (fun acc t ->
+        let regexp_pos = Str.regexp "p.*" in
+        if Str.string_match regexp_pos t 0 then acc + 1 else acc)
+      0 test_cases
+  in
+  let neg_num =
+    List.fold_left
+      (fun acc t ->
+        let regexp_neg = Str.regexp "n.*" in
+        if Str.string_match regexp_neg t 0 then acc + 1 else acc)
+      0 test_cases
+  in
+  let jaccard_loc =
+    List.map
+      (fun (l, s1, s2, _) ->
+        let nep = s2 in
+        let nnp = float_of_int pos_num -. s2 in
+        let nef = s1 in
+        let nnf = float_of_int neg_num -. s1 in
+        let denom = nef +. nnf +. nep in
+        let score = nef /. denom in
+        (l, s1, s2, score))
+      locations
+  in
+  List.stable_sort
+    (fun (_, _, _, s13) (_, _, _, s23) ->
+      if s23 > s13 then 1 else if s23 = s13 then 0 else -1)
+    jaccard_loc
 
 let unival_localizer work_dir bug_desc = failwith "Not implemented"
 
@@ -128,6 +197,8 @@ let run work_dir =
   match !Cmdline.engine with
   | Cmdline.Tarantula -> tarantula_localizer work_dir bug_desc
   | Cmdline.Prophet -> prophet_localizer work_dir bug_desc
+  | Cmdline.Jaccard -> jaccard_localizer work_dir bug_desc
+  | Cmdline.Ochiai -> ochiai_localizer work_dir bug_desc
   | Cmdline.Dummy -> dummy_localizer work_dir bug_desc
   | Cmdline.UniVal -> unival_localizer work_dir bug_desc
 
