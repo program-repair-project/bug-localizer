@@ -28,6 +28,10 @@ let select_engine s =
   | "unival" -> engine := UniVal
   | _ -> failwith "Unknown engine"
 
+let jobs = ref 0 (* i.e., #cpus *)
+
+let blacklist = ref []
+
 let options =
   [
     ("-outdir", Arg.Set_string out_dir, "Output directory");
@@ -38,6 +42,10 @@ let options =
     ( "-engine",
       Arg.String select_engine,
       "Specify localization engine (default: Dummy)" );
+    ("-j", Arg.Set_int jobs, "Number of parallel jobs for make (default: -j)");
+    ( "-blacklist",
+      Arg.String (fun x -> blacklist := x :: !blacklist),
+      "Blacklist for instrumentation" );
   ]
 
 let parse_arg x =

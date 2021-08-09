@@ -69,6 +69,7 @@ let file_instrument_all work_dir =
       (fun file ->
         let file_path = Filename.concat root_dir file in
         if (Unix.lstat file_path).st_kind = Unix.S_LNK then ()
+        else if List.mem file !Cmdline.blacklist then ()
         else if Sys.is_directory file_path then traverse_file f file_path
         else if Filename.extension file = ".c" then f file_path
         else ())
@@ -101,7 +102,10 @@ let simple_compiler compile_script =
   | _ -> failwith (compile_script ^ " failed")
 
 let make () =
-  Unix.create_process "make" [| "make"; "-j" |] Unix.stdin Unix.stdout
+  let jobs =
+    if !Cmdline.jobs = 0 then "-j" else "-j" ^ string_of_int !Cmdline.jobs
+  in
+  Unix.create_process "make" [| "make"; jobs |] Unix.stdin Unix.stdout
     Unix.stderr
   |> ignore;
   match Unix.wait () |> snd with
