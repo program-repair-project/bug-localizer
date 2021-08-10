@@ -9,6 +9,7 @@ let instrument_code =
   String.concat ""
     [
       "/* BUGZOO :: INSTRUMENTATION :: START */\n";
+      (if !Cmdline.gnu_source then "#define _GNU_SOURCE\n" else "");
       "#include <stdio.h>\n";
       "#include <stdlib.h>\n";
       "#include <signal.h>\n";

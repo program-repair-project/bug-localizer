@@ -32,6 +32,8 @@ let jobs = ref 0 (* i.e., #cpus *)
 
 let blacklist = ref []
 
+let gnu_source = ref false
+
 let options =
   [
     ("-outdir", Arg.Set_string out_dir, "Output directory");
@@ -46,6 +48,10 @@ let options =
     ( "-blacklist",
       Arg.String (fun x -> blacklist := x :: !blacklist),
       "Blacklist for instrumentation" );
+    ( "-gnu_source",
+      Arg.Set gnu_source,
+      "Add #define _GNU_SOURCE when instrumentation for some programs (e.g., \
+       gimp)" );
   ]
 
 let parse_arg x =
