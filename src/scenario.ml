@@ -5,7 +5,7 @@ type t = {
   coverage_data : string;
 }
 
-let instrument_code =
+let instrument_code () =
   String.concat ""
     [
       "/* BUGZOO :: INSTRUMENTATION :: START */\n";
@@ -58,7 +58,7 @@ let file_instrument filename =
     s
   in
   let c_code = read_whole_file filename in
-  let instr_c_code = instrument_code ^ c_code in
+  let instr_c_code = instrument_code () ^ c_code in
   let oc = open_out filename in
   Printf.fprintf oc "%s" instr_c_code;
   close_out oc
