@@ -49,15 +49,15 @@ let spec_localizer work_dir bug_desc =
           (fun file lines locs ->
             let new_locs =
               if Str.string_match regexp_pos elem.LineCoverage.test 0 then
-                List.map
+                List.rev_map
                   (fun line -> ({ Cil.file; line; byte = 0 }, 0.0, 1.0, 0.0))
                   lines
               else
-                List.map
+                List.rev_map
                   (fun line -> ({ Cil.file; line; byte = 0 }, 1.0, 0.0, 0.0))
                   lines
             in
-            locs @ new_locs)
+            List.rev_append new_locs locs)
           elem.LineCoverage.coverage locs)
       [] coverage
   in
