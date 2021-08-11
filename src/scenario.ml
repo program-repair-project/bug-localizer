@@ -118,9 +118,9 @@ let configure () =
   Unix.create_process "./configure"
     [|
       "./configure";
-      "CFLAGS=--coverage --save-temps";
+      "CFLAGS=--coverage --save-temps -Wno-error";
       "CXXFLAGS=--coverage --save-temps";
-      "LDFLAGS=-lgcov";
+      "LDFLAGS=-lgcov --coverage";
     |]
     Unix.stdin Unix.stdout Unix.stderr
   |> ignore;
