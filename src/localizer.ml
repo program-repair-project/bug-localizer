@@ -73,8 +73,7 @@ let spec_localizer work_dir bug_desc =
     (fun (l, (s1, s2, s3)) -> (l, s1, s2, s3))
     (List.of_seq (Hashtbl.to_seq table))
 
-let prophet_localizer work_dir bug_desc =
-  let locations = spec_localizer work_dir bug_desc in
+let prophet_localizer work_dir bug_desc locations =
   List.stable_sort
     (fun (_, s11, s12, s13) (_, s21, s22, s23) ->
       if s21 -. s11 <> 0. then int_of_float (s21 -. s11)
@@ -82,8 +81,7 @@ let prophet_localizer work_dir bug_desc =
       else int_of_float (s23 -. s13))
     locations
 
-let tarantula_localizer work_dir bug_desc =
-  let locations = spec_localizer work_dir bug_desc in
+let tarantula_localizer work_dir bug_desc locations =
   let test_cases = bug_desc.BugDesc.test_cases in
   let pos_num =
     List.fold_left
@@ -118,8 +116,7 @@ let tarantula_localizer work_dir bug_desc =
       if s23 > s13 then 1 else if s23 = s13 then 0 else -1)
     taran_loc
 
-let ochiai_localizer work_dir bug_desc =
-  let locations = spec_localizer work_dir bug_desc in
+let ochiai_localizer work_dir bug_desc locations =
   let test_cases = bug_desc.BugDesc.test_cases in
   let pos_num =
     List.fold_left
@@ -154,8 +151,7 @@ let ochiai_localizer work_dir bug_desc =
       if s23 > s13 then 1 else if s23 = s13 then 0 else -1)
     ochiai_loc
 
-let jaccard_localizer work_dir bug_desc =
-  let locations = spec_localizer work_dir bug_desc in
+let jaccard_localizer work_dir bug_desc locations =
   let test_cases = bug_desc.BugDesc.test_cases in
   let pos_num =
     List.fold_left
@@ -188,22 +184,43 @@ let jaccard_localizer work_dir bug_desc =
       if s23 > s13 then 1 else if s23 = s13 then 0 else -1)
     jaccard_loc
 
-let unival_localizer work_dir bug_desc = failwith "Not implemented"
+let unival_localizer work_dir bug_desc locations = failwith "Not implemented"
+
+let print locations resultname =
+  let oc = Filename.concat !Cmdline.out_dir resultname |> open_out in
+  let fmt = F.formatter_of_out_channel oc in
+  List.iter (fun l -> F.fprintf fmt "%a\n" BugLocation.pp l) locations;
+  close_out oc
 
 let run work_dir =
   Logging.log "Start localization";
   let bug_desc = BugDesc.read work_dir in
   Logging.log "Bug desc: %a" BugDesc.pp bug_desc;
+  let locations = spec_localizer work_dir bug_desc in
   match !Cmdline.engine with
-  | Cmdline.Tarantula -> tarantula_localizer work_dir bug_desc
-  | Cmdline.Prophet -> prophet_localizer work_dir bug_desc
-  | Cmdline.Jaccard -> jaccard_localizer work_dir bug_desc
-  | Cmdline.Ochiai -> ochiai_localizer work_dir bug_desc
-  | Cmdline.Dummy -> dummy_localizer work_dir bug_desc
-  | Cmdline.UniVal -> unival_localizer work_dir bug_desc
-
-let print locations =
-  let oc = Filename.concat !Cmdline.out_dir "result.txt" |> open_out in
-  let fmt = F.formatter_of_out_channel oc in
-  List.iter (fun l -> F.fprintf fmt "%a\n" BugLocation.pp l) locations;
-  close_out oc
+  | Cmdline.Dummy ->
+      "result_dummy.txt" |> (dummy_localizer work_dir bug_desc |> print)
+  | Cmdline.Tarantula ->
+      "result_tarantula.txt"
+      |> (tarantula_localizer work_dir bug_desc locations |> print)
+  | Cmdline.Prophet ->
+      "result_prophet.txt"
+      |> (prophet_localizer work_dir bug_desc locations |> print)
+  | Cmdline.Jaccard ->
+      "result_jaccard.txt"
+      |> (jaccard_localizer work_dir bug_desc locations |> print)
+  | Cmdline.Ochiai ->
+      "result_ochiai.txt"
+      |> (ochiai_localizer work_dir bug_desc locations |> print)
+  | Cmdline.UniVal ->
+      "result_unival.txt"
+      |> (unival_localizer work_dir bug_desc locations |> print)
+  | Cmdline.All ->
+      "result_prophet.txt"
+      |> (prophet_localizer work_dir bug_desc locations |> print);
+      "result_tarantula.txt"
+      |> (tarantula_localizer work_dir bug_desc locations |> print);
+      "result_jaccard.txt"
+      |> (jaccard_localizer work_dir bug_desc locations |> print);
+      "result_ochiai.txt"
+      |> (ochiai_localizer work_dir bug_desc locations |> print)
