@@ -14,7 +14,7 @@ let select_instrument s =
 
 let skip_compile = ref false
 
-type engine = Tarantula | Prophet | Jaccard | Ochiai | Dummy | UniVal
+type engine = Tarantula | Prophet | Jaccard | Ochiai | Dummy | UniVal | All
 
 let engine = ref Dummy
 
@@ -26,6 +26,7 @@ let select_engine s =
   | "ochiai" -> engine := Ochiai
   | "dummy" -> engine := Dummy
   | "unival" -> engine := UniVal
+  | "all" -> engine := All
   | _ -> failwith "Unknown engine"
 
 let jobs = ref 0 (* i.e., #cpus *)

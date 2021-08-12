@@ -19,7 +19,6 @@ let main () =
   | Some work_dir ->
       initialize work_dir;
       Instrument.run work_dir;
-      let result = Localizer.run work_dir in
-      Localizer.print result
+      Localizer.run work_dir
 
 let _ = main ()
