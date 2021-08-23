@@ -18,7 +18,6 @@ let main () =
       exit 1
   | Some work_dir ->
       initialize work_dir;
-      Instrument.run work_dir;
       Localizer.run work_dir
 
 let _ = main ()
