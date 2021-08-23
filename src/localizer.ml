@@ -184,7 +184,17 @@ let jaccard_localizer work_dir bug_desc locations =
       if s23 > s13 then 1 else if s23 = s13 then 0 else -1)
     jaccard_loc
 
-let unival_localizer work_dir bug_desc locations = failwith "Not implemented"
+let unival_compile scenario bug_desc =
+  Unix.chdir scenario.Scenario.work_dir;
+  if not !Cmdline.skip_compile then Logging.log "Start compile";
+  Scenario.compile scenario bug_desc.BugDesc.compiler_type;
+  Unix.chdir scenario.Scenario.work_dir
+
+let unival_localizer work_dir bug_desc =
+  let scenario = Scenario.init work_dir in
+  unival_compile scenario bug_desc;
+  Instrument.run scenario.work_dir;
+  failwith "Not implemented"
 
 let print locations resultname =
   let oc = Filename.concat !Cmdline.out_dir resultname |> open_out in
@@ -196,31 +206,32 @@ let run work_dir =
   Logging.log "Start localization";
   let bug_desc = BugDesc.read work_dir in
   Logging.log "Bug desc: %a" BugDesc.pp bug_desc;
-  let locations = spec_localizer work_dir bug_desc in
-  match !Cmdline.engine with
-  | Cmdline.Dummy ->
-      "result_dummy.txt" |> (dummy_localizer work_dir bug_desc |> print)
-  | Cmdline.Tarantula ->
-      "result_tarantula.txt"
-      |> (tarantula_localizer work_dir bug_desc locations |> print)
-  | Cmdline.Prophet ->
-      "result_prophet.txt"
-      |> (prophet_localizer work_dir bug_desc locations |> print)
-  | Cmdline.Jaccard ->
-      "result_jaccard.txt"
-      |> (jaccard_localizer work_dir bug_desc locations |> print)
-  | Cmdline.Ochiai ->
-      "result_ochiai.txt"
-      |> (ochiai_localizer work_dir bug_desc locations |> print)
-  | Cmdline.UniVal ->
-      "result_unival.txt"
-      |> (unival_localizer work_dir bug_desc locations |> print)
-  | Cmdline.All ->
-      "result_prophet.txt"
-      |> (prophet_localizer work_dir bug_desc locations |> print);
-      "result_tarantula.txt"
-      |> (tarantula_localizer work_dir bug_desc locations |> print);
-      "result_jaccard.txt"
-      |> (jaccard_localizer work_dir bug_desc locations |> print);
-      "result_ochiai.txt"
-      |> (ochiai_localizer work_dir bug_desc locations |> print)
+  if !Cmdline.engine = Cmdline.UniVal then
+    "result_unival.txt" |> (unival_localizer work_dir bug_desc |> print)
+  else
+    let locations = spec_localizer work_dir bug_desc in
+    match !Cmdline.engine with
+    | Cmdline.Dummy ->
+        "result_dummy.txt" |> (dummy_localizer work_dir bug_desc |> print)
+    | Cmdline.Tarantula ->
+        "result_tarantula.txt"
+        |> (tarantula_localizer work_dir bug_desc locations |> print)
+    | Cmdline.Prophet ->
+        "result_prophet.txt"
+        |> (prophet_localizer work_dir bug_desc locations |> print)
+    | Cmdline.Jaccard ->
+        "result_jaccard.txt"
+        |> (jaccard_localizer work_dir bug_desc locations |> print)
+    | Cmdline.Ochiai ->
+        "result_ochiai.txt"
+        |> (ochiai_localizer work_dir bug_desc locations |> print)
+    | Cmdline.All ->
+        "result_prophet.txt"
+        |> (prophet_localizer work_dir bug_desc locations |> print);
+        "result_tarantula.txt"
+        |> (tarantula_localizer work_dir bug_desc locations |> print);
+        "result_jaccard.txt"
+        |> (jaccard_localizer work_dir bug_desc locations |> print);
+        "result_ochiai.txt"
+        |> (ochiai_localizer work_dir bug_desc locations |> print)
+    | Cmdline.UniVal -> ()
