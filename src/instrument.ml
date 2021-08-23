@@ -167,9 +167,270 @@ module DfSan = struct
 end
 
 module GSA = struct
-  module CausalMap = Map.Make (String)
+  let pred_num = ref (-1)
 
-  let run work_dir src_dir = failwith "Not implemented"
+  let new_pred () =
+    pred_num := !pred_num + 1;
+    print_endline (string_of_int !pred_num);
+    "OOJAHOOO_PRED_" ^ string_of_int !pred_num
+
+  class assignInitializer f =
+    let add_predicate_var result stmt =
+      match stmt.Cil.skind with
+      | Cil.If (pred, then_branch, else_branch, loc) ->
+          let pred_var = new_pred () in
+          let vi = Cil.makeLocalVar f pred_var (Cil.TInt (Cil.IInt, [])) in
+          stmt.Cil.skind <-
+            Cil.If
+              ( Cil.Lval (Cil.Var vi, Cil.NoOffset),
+                then_branch,
+                else_branch,
+                loc );
+          result
+          @ [
+              Cil.mkStmtOneInstr
+                (Cil.Set ((Cil.Var vi, Cil.NoOffset), pred, loc));
+              stmt;
+            ]
+      | _ -> result @ [ stmt ]
+    in
+    object
+      inherit Cil.nopCilVisitor
+
+      method! vblock b =
+        let new_stmts = List.fold_left add_predicate_var [] b.Cil.bstmts in
+        let new_block = Cil.mkBlock new_stmts in
+        ChangeTo new_block
+    end
+
+  class predicateVisitor =
+    object
+      inherit Cil.nopCilVisitor
+
+      method! vfunc f =
+        ChangeTo (Cil.visitCilFunction (new assignInitializer f) f)
+    end
+
+  let predicate_transform pp_file =
+    let origin_file = Filename.remove_extension pp_file ^ ".c" in
+    Logging.log "Predicate transform %s (%s)" origin_file pp_file;
+    let cil = Frontc.parse pp_file () in
+    Cil.visitCilFile (new predicateVisitor) cil;
+    let oc = open_out pp_file in
+    Cil.dumpFile !Cil.printerForMaincil oc "" cil;
+    close_out oc;
+    pp_file
+
+  module CausalMap = Map.Make (String)
+  module VarSet = Set.Make (String)
+  module VarVerMap = Map.Make (String)
+  module VarMap = Map.Make (String)
+
+  let causal_map = ref CausalMap.empty
+
+  let var_ver = ref VarVerMap.empty
+
+  class assignVisitor record_func pt_file f =
+    let vname_of lv =
+      match lv with Cil.Var vi, Cil.NoOffset -> vi.Cil.vname | _ -> ""
+    in
+    let varinfo_of lv =
+      match lv with
+      | Cil.Var vi, Cil.NoOffset -> vi
+      | _ -> Cil.makeVarinfo false "" (Cil.TVoid [])
+    in
+    let rec var_names_of exp =
+      let result =
+        match exp with
+        | Cil.Lval lv -> VarMap.singleton (vname_of lv) (varinfo_of lv)
+        | Cil.SizeOfE e -> var_names_of e
+        | Cil.AlignOfE e -> var_names_of e
+        | Cil.UnOp (_, e, _) -> var_names_of e
+        | Cil.BinOp (_, e1, e2, _) ->
+            VarMap.union
+              (fun _ va1 _ -> Some va1)
+              (var_names_of e1) (var_names_of e2)
+        | Cil.Question (e1, e2, e3, _) ->
+            VarMap.union
+              (fun _ va1 _ -> Some va1)
+              (VarMap.union
+                 (fun _ va1 _ -> Some va1)
+                 (var_names_of e1) (var_names_of e2))
+              (var_names_of e3)
+        | Cil.CastE (_, e) -> var_names_of e
+        | _ -> VarMap.empty
+      in
+      VarMap.remove "" result
+    in
+    let is_pred vname =
+      let pred_prefix = Str.regexp "OOJAHOOO_PRED_\[0-9\]\+" in
+      Str.string_match pred_prefix vname 0
+    in
+    let call_record var vname ver loc =
+      let fun_name = f.Cil.svar.vname in
+      Cil.Call
+        ( None,
+          Cil.Lval (Cil.Var record_func, Cil.NoOffset),
+          [
+            Cil.Const (CStr (Filename.remove_extension pt_file));
+            Cil.Const (Cil.CStr fun_name);
+            Cil.Const (Cil.CStr vname);
+            Cil.Const (Cil.CInt64 (Int64.of_int ver, Cil.IInt, None));
+            Cil.Lval var;
+          ],
+          loc )
+    in
+    let ass2gsa result instr =
+      let gogo, lv, lval, exp_vars, loc =
+        match instr with
+        | Cil.Set (lv, exp, loc) ->
+            let exp_vars = var_names_of exp in
+            let lval = vname_of lv in
+            (true, lv, lval, exp_vars, loc)
+        | Call (lv_opt, _, params, loc) ->
+            if Option.is_none lv_opt then
+              ( false,
+                (Var (Cil.makeVarinfo false "" (Cil.TVoid [])), Cil.NoOffset),
+                "",
+                VarMap.empty,
+                loc )
+            else
+              let lv = Option.get lv_opt in
+              let exp_vars =
+                List.fold_left
+                  (fun ev param ->
+                    VarMap.union
+                      (fun _ vi1 _ -> Some vi1)
+                      ev (var_names_of param))
+                  VarMap.empty params
+              in
+              let lval = vname_of lv in
+              (true, lv, lval, exp_vars, loc)
+        | _ ->
+            ( false,
+              (Var (Cil.makeVarinfo false "" (Cil.TVoid [])), Cil.NoOffset),
+              "",
+              VarMap.empty,
+              { line = -1; file = ""; byte = -1 } )
+      in
+      if (not gogo) || lval = "" then result @ [ instr ]
+      else if is_pred lval then (
+        let exp_vars_with_ver, exp_vars_with_new_ver =
+          VarMap.fold
+            (fun ev _ (vs, nvs) ->
+              let ver = VarVerMap.find ev !var_ver in
+              ( (ev ^ string_of_int ver) :: vs,
+                (ev ^ string_of_int (ver + 1)) :: nvs ))
+            exp_vars ([], [])
+        in
+        causal_map := CausalMap.add lval exp_vars_with_ver !causal_map;
+        let new_var_ver =
+          VarVerMap.mapi
+            (fun v ver -> if VarMap.mem v exp_vars then ver + 1 else ver)
+            !var_ver
+        in
+        List.iter2
+          (fun old_ver new_ver ->
+            causal_map := CausalMap.add new_ver [ old_ver ] !causal_map)
+          exp_vars_with_ver exp_vars_with_new_ver;
+        let pred_record = call_record lv lval 0 loc in
+        let records =
+          VarMap.fold
+            (fun vname vi rs ->
+              call_record (Cil.Var vi, Cil.NoOffset) vname
+                (VarMap.find vname new_var_ver)
+                loc
+              :: rs)
+            exp_vars []
+        in
+        var_ver := new_var_ver;
+        result @ instr :: pred_record :: records)
+      else
+        let new_var_ver =
+          if VarVerMap.mem lval !var_ver then
+            VarVerMap.update lval
+              (fun ver -> Some (Option.get ver + 1))
+              !var_ver
+          else VarVerMap.add lval 0 !var_ver
+        in
+        let exp_vars_with_ver =
+          VarMap.fold
+            (fun ev _ vs ->
+              let ver = VarVerMap.find ev !var_ver in
+              (ev ^ string_of_int ver) :: vs)
+            exp_vars []
+        in
+        let ver_of_lval = VarVerMap.find lval new_var_ver in
+        let lval_with_ver = lval ^ string_of_int ver_of_lval in
+        causal_map := CausalMap.add lval_with_ver exp_vars_with_ver !causal_map;
+        let lv_record = call_record lv lval ver_of_lval loc in
+        var_ver := new_var_ver;
+        result @ [ instr; lv_record ]
+    in
+    object
+      inherit Cil.nopCilVisitor
+
+      method! vstmt s =
+        match s.Cil.skind with
+        | Instr is ->
+            s.Cil.skind <- Instr (List.fold_left ass2gsa [] is);
+            DoChildren
+        | _ -> DoChildren
+    end
+
+  class funAssignVisitor record_func pt_file origin_var_ver =
+    object
+      inherit Cil.nopCilVisitor
+
+      method! vfunc f =
+        var_ver := origin_var_ver;
+        List.iter
+          (fun form -> var_ver := VarVerMap.add form.Cil.vname 0 !var_ver)
+          f.Cil.sformals;
+        ChangeTo
+          (Cil.visitCilFunction (new assignVisitor record_func pt_file f) f)
+    end
+
+  let extract_gvar globals =
+    List.filter_map
+      (fun g ->
+        match g with
+        | Cil.GVarDecl (vi, _) | Cil.GVar (vi, _, _) -> Some vi.Cil.vname
+        | _ -> None)
+      globals
+
+  let gsa_gen pt_file =
+    let origin_file = Filename.remove_extension pt_file ^ ".c" in
+    Logging.log "GSA_Gen %s (%s)" origin_file pt_file;
+    let cil = Frontc.parse pt_file () in
+    let global_vars = extract_gvar cil.Cil.globals in
+    var_ver :=
+      List.fold_left
+        (fun vv gv -> VarVerMap.add gv 0 vv)
+        VarVerMap.empty global_vars;
+    let record_func =
+      Cil.findOrCreateFunc cil "unival_record"
+        (Cil.TFun (Cil.voidType, None, false, []))
+    in
+    Cil.visitCilFile (new funAssignVisitor record_func pt_file !var_ver) cil;
+    let oc = open_out pt_file in
+    Cil.dumpFile !Cil.printerForMaincil oc "" cil;
+    close_out oc
+
+  let rec traverse_pp_file f root_dir =
+    let files = Sys.readdir root_dir in
+    Array.iter
+      (fun file ->
+        let file_path = Filename.concat root_dir file in
+        if Sys.is_directory file_path then traverse_pp_file f file_path
+        else if Filename.extension file = ".i" then f file_path
+        else ())
+      files
+
+  let run src_dir =
+    traverse_pp_file
+      (fun pp_file -> pp_file |> predicate_transform |> gsa_gen)
+      src_dir
 end
 
 let run work_dir =
@@ -177,5 +438,5 @@ let run work_dir =
   let src_dir = Filename.concat work_dir "src" in
   match !Cmdline.instrument with
   | Cmdline.DfSan -> DfSan.run work_dir src_dir
-  | Cmdline.GSA -> GSA.run work_dir src_dir
+  | Cmdline.GSA -> GSA.run src_dir
   | Cmdline.Nothing -> ()
