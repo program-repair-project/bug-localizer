@@ -25,7 +25,9 @@ let select_engine s =
   | "jaccard" -> engine := Jaccard
   | "ochiai" -> engine := Ochiai
   | "dummy" -> engine := Dummy
-  | "unival" -> engine := UniVal
+  | "unival" ->
+      engine := UniVal;
+      instrument := GSA
   | "all" -> engine := All
   | _ -> failwith "Unknown engine"
 
