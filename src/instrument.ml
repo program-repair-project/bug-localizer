@@ -235,7 +235,7 @@ module GSA = struct
 
   let var_ver = ref VarVerMap.empty
 
-  class assignVisitor record_func pt_file f =
+  class assignVisitor record_func f =
     let vname_of lv =
       match lv with Cil.Var vi, Cil.NoOffset -> vi.Cil.vname | _ -> ""
     in
@@ -277,8 +277,9 @@ module GSA = struct
         ( None,
           Cil.Lval (Cil.Var record_func, Cil.NoOffset),
           [
-            Cil.Const (CStr (Filename.remove_extension pt_file));
+            Cil.Const (CStr loc.Cil.file);
             Cil.Const (Cil.CStr fun_name);
+            Cil.Const (Cil.CInt64 (Int64.of_int loc.Cil.line, Cil.IInt, None));
             Cil.Const (Cil.CStr vname);
             Cil.Const (Cil.CInt64 (Int64.of_int ver, Cil.IInt, None));
             Cil.Lval var;
@@ -391,7 +392,7 @@ module GSA = struct
         | _ -> DoChildren
     end
 
-  class funAssignVisitor record_func pt_file origin_var_ver =
+  class funAssignVisitor record_func origin_var_ver =
     object
       inherit Cil.nopCilVisitor
 
@@ -403,8 +404,7 @@ module GSA = struct
         List.iter
           (fun form -> var_ver := VarVerMap.add form.Cil.vname 0 !var_ver)
           f.Cil.slocals;
-        ChangeTo
-          (Cil.visitCilFunction (new assignVisitor record_func pt_file f) f)
+        ChangeTo (Cil.visitCilFunction (new assignVisitor record_func f) f)
     end
 
   let extract_gvar globals =
@@ -433,7 +433,7 @@ module GSA = struct
         Cil.findOrCreateFunc cil "unival_record"
           (Cil.TFun (Cil.voidType, None, false, []))
       in
-      Cil.visitCilFile (new funAssignVisitor record_func pt_file !var_ver) cil;
+      Cil.visitCilFile (new funAssignVisitor record_func !var_ver) cil;
       let oc = open_out pt_file in
       Cil.dumpFile !Cil.printerForMaincil oc "" cil;
       close_out oc
