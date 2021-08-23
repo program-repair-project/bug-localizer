@@ -214,12 +214,17 @@ module GSA = struct
   let predicate_transform pp_file =
     let origin_file = Filename.remove_extension pp_file ^ ".c" in
     Logging.log "Predicate transform %s (%s)" origin_file pp_file;
-    let cil = Frontc.parse pp_file () in
-    Cil.visitCilFile (new predicateVisitor) cil;
-    let oc = open_out pp_file in
-    Cil.dumpFile !Cil.printerForMaincil oc "" cil;
-    close_out oc;
-    pp_file
+    let cil_opt =
+      try Some (Frontc.parse pp_file ()) with Frontc.ParseError _ -> None
+    in
+    if Option.is_none cil_opt then pp_file
+    else
+      let cil = Option.get cil_opt in
+      Cil.visitCilFile (new predicateVisitor) cil;
+      let oc = open_out pp_file in
+      Cil.dumpFile !Cil.printerForMaincil oc "" cil;
+      close_out oc;
+      pp_file
 
   module CausalMap = Map.Make (String)
   module VarSet = Set.Make (String)
@@ -318,9 +323,11 @@ module GSA = struct
         let exp_vars_with_ver, exp_vars_with_new_ver =
           VarMap.fold
             (fun ev _ (vs, nvs) ->
+              (* for debugging *)
+              (* print_endline "a"; *)
               let ver = VarVerMap.find ev !var_ver in
-              ( (ev ^ string_of_int ver) :: vs,
-                (ev ^ string_of_int (ver + 1)) :: nvs ))
+              ( (ev ^ "_" ^ string_of_int ver) :: vs,
+                (ev ^ "_" ^ string_of_int (ver + 1)) :: nvs ))
             exp_vars ([], [])
         in
         causal_map := CausalMap.add lval exp_vars_with_ver !causal_map;
@@ -337,6 +344,8 @@ module GSA = struct
         let records =
           VarMap.fold
             (fun vname vi rs ->
+              (* for debugging *)
+              (* print_endline "b"; *)
               call_record (Cil.Var vi, Cil.NoOffset) vname
                 (VarMap.find vname new_var_ver)
                 loc
@@ -356,12 +365,16 @@ module GSA = struct
         let exp_vars_with_ver =
           VarMap.fold
             (fun ev _ vs ->
+              (* for debugging *)
+              (* print_endline ev; *)
               let ver = VarVerMap.find ev !var_ver in
-              (ev ^ string_of_int ver) :: vs)
+              (ev ^ "_" ^ string_of_int ver) :: vs)
             exp_vars []
         in
+        (* for debugging *)
+        (* print_endline "d"; *)
         let ver_of_lval = VarVerMap.find lval new_var_ver in
-        let lval_with_ver = lval ^ string_of_int ver_of_lval in
+        let lval_with_ver = lval ^ "_" ^ string_of_int ver_of_lval in
         causal_map := CausalMap.add lval_with_ver exp_vars_with_ver !causal_map;
         let lv_record = call_record lv lval ver_of_lval loc in
         var_ver := new_var_ver;
@@ -387,6 +400,9 @@ module GSA = struct
         List.iter
           (fun form -> var_ver := VarVerMap.add form.Cil.vname 0 !var_ver)
           f.Cil.sformals;
+        List.iter
+          (fun form -> var_ver := VarVerMap.add form.Cil.vname 0 !var_ver)
+          f.Cil.slocals;
         ChangeTo
           (Cil.visitCilFunction (new assignVisitor record_func pt_file f) f)
     end
@@ -402,35 +418,62 @@ module GSA = struct
   let gsa_gen pt_file =
     let origin_file = Filename.remove_extension pt_file ^ ".c" in
     Logging.log "GSA_Gen %s (%s)" origin_file pt_file;
-    let cil = Frontc.parse pt_file () in
-    let global_vars = extract_gvar cil.Cil.globals in
-    var_ver :=
-      List.fold_left
-        (fun vv gv -> VarVerMap.add gv 0 vv)
-        VarVerMap.empty global_vars;
-    let record_func =
-      Cil.findOrCreateFunc cil "unival_record"
-        (Cil.TFun (Cil.voidType, None, false, []))
+    let cil_opt =
+      try Some (Frontc.parse pt_file ()) with Frontc.ParseError _ -> None
     in
-    Cil.visitCilFile (new funAssignVisitor record_func pt_file !var_ver) cil;
-    let oc = open_out pt_file in
-    Cil.dumpFile !Cil.printerForMaincil oc "" cil;
-    close_out oc
+    if Option.is_none cil_opt then ()
+    else
+      let cil = Option.get cil_opt in
+      let global_vars = extract_gvar cil.Cil.globals in
+      var_ver :=
+        List.fold_left
+          (fun vv gv -> VarVerMap.add gv 0 vv)
+          VarVerMap.empty global_vars;
+      let record_func =
+        Cil.findOrCreateFunc cil "unival_record"
+          (Cil.TFun (Cil.voidType, None, false, []))
+      in
+      Cil.visitCilFile (new funAssignVisitor record_func pt_file !var_ver) cil;
+      let oc = open_out pt_file in
+      Cil.dumpFile !Cil.printerForMaincil oc "" cil;
+      close_out oc
 
   let rec traverse_pp_file f root_dir =
     let files = Sys.readdir root_dir in
     Array.iter
       (fun file ->
         let file_path = Filename.concat root_dir file in
-        if Sys.is_directory file_path then traverse_pp_file f file_path
+        if Sys.is_directory file_path then
+          if Filename.check_suffix file_path ".hg" then ()
+          else traverse_pp_file f file_path
         else if Filename.extension file = ".i" then f file_path
         else ())
       files
 
-  let run src_dir =
+  let rec join strlist delimiter =
+    match strlist with
+    | [ hd ] -> hd
+    | hd :: tl -> hd ^ delimiter ^ join tl delimiter
+    | [] -> ""
+
+  let print_cm work_dir causal_map =
+    let output_file = Filename.concat work_dir "CausalMap.txt" in
+    let oc = open_out output_file in
+    let cm_str =
+      join
+        (CausalMap.fold
+           (fun var parents res -> join (var :: parents) "," :: res)
+           causal_map [])
+        "\n"
+    in
+    Printf.fprintf oc "%s" cm_str;
+    close_out oc
+
+  let run work_dir src_dir =
     traverse_pp_file
       (fun pp_file -> pp_file |> predicate_transform |> gsa_gen)
-      src_dir
+      src_dir;
+    print_cm work_dir !causal_map
 end
 
 let run work_dir =
@@ -438,5 +481,5 @@ let run work_dir =
   let src_dir = Filename.concat work_dir "src" in
   match !Cmdline.instrument with
   | Cmdline.DfSan -> DfSan.run work_dir src_dir
-  | Cmdline.GSA -> GSA.run src_dir
+  | Cmdline.GSA -> GSA.run work_dir src_dir
   | Cmdline.Nothing -> ()
