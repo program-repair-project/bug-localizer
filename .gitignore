@@ -6,3 +6,6 @@ coverage.xml
 *.gc*
 bug
 *.i
+*.o
+*.s
+CausalMap.txt
