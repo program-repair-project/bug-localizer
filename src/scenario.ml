@@ -50,6 +50,74 @@ let instrument_code () =
       "/* BUGZOO :: INSTRUMENTATION :: END */\n";
     ]
 
+let unival_record_code () =
+  String.concat ""
+    [
+      "/* UNIVAL :: INSTRUMENTATION :: START */\n";
+      "#include <string.h>\n";
+      "#include <stdarg.h>\n";
+      "#ifndef UNIVAL_RECORD\n";
+      "#define UNIVAL_RECORD 1\n";
+      "static void unival_record (char *filename, char *funcname, int line, \
+       char *varname, int version, ...) {\n";
+      "  va_list ap;\n";
+      "  va_start(ap, version);\n";
+      "  char *which_type = va_arg(ap, const char*);\n";
+      "  if (strncmp(varname, \"OOJAHOOO_PRED\", 13) == 0) {\n";
+      "    int i_val = va_arg(ap, int) == 0 ? 0 : 1;\n";
+      "    printf(\"%s,%s,%d,%s,%d,%d\\n\", filename, funcname, line, varname, \
+       version, i_val);\n";
+      "  }\n";
+      "  else {\n";
+      "    if (strcmp(which_type, \"char\") == 0) {\n";
+      "      printf(\"%s,%s,%d,%s,%d,%c\\n\", filename, funcname, line, \
+       varname, version, (char) va_arg(ap, int));\n";
+      "    } else if (strcmp(which_type, \"signed char\") == 0) {\n";
+      "      printf(\"%s,%s,%d,%s,%d,%c\\n\", filename, funcname, line, \
+       varname, version, (char) va_arg(ap, int));\n";
+      "    } else if (strcmp(which_type, \"unsigned char\") == 0) {\n";
+      "      printf(\"%s,%s,%d,%s,%d,%c\\n\", filename, funcname, line, \
+       varname, version, (unsigned char) va_arg(ap, int));\n";
+      "    } else if (strcmp(which_type, \"int\") == 0) {\n";
+      "      printf(\"%s,%s,%d,%s,%d,%c\\n\", filename, funcname, line, \
+       varname, version, va_arg(ap, int));\n";
+      "    } else if (strcmp(which_type, \"unsigned int\") == 0) {\n";
+      "      printf(\"%s,%s,%d,%s,%d,%u\\n\", filename, funcname, line, \
+       varname, version, (unsigned int) va_arg(ap, int));\n";
+      "    } else if (strcmp(which_type, \"short\") == 0) {\n";
+      "      printf(\"%s,%s,%d,%s,%d,%d\\n\", filename, funcname, line, \
+       varname, version, (short) va_arg(ap, int));\n";
+      "    } else if (strcmp(which_type, \"unsigned short\") == 0) {\n";
+      "      printf(\"%s,%s,%d,%s,%d,%hd\\n\", filename, funcname, line, \
+       varname, version, (unsigned short) va_arg(ap, int));\n";
+      "    } else if (strcmp(which_type, \"long\") == 0) {\n";
+      "      printf(\"%s,%s,%d,%s,%d,%ld\\n\", filename, funcname, line, \
+       varname, version, va_arg(ap, long));\n";
+      "    } else if (strcmp(which_type, \"unsigned long\") == 0) {\n";
+      "      printf(\"%s,%s,%d,%s,%d,%lu\\n\", filename, funcname, line, \
+       varname, version, va_arg(ap, unsigned long));\n";
+      "    } else if (strcmp(which_type, \"float\") == 0) {\n";
+      "      printf(\"%s,%s,%d,%s,%d,%f\\n\", filename, funcname, line, \
+       varname, version, (float) va_arg(ap, double));\n";
+      "    } else if (strcmp(which_type, \"double\") == 0) {\n";
+      "      printf(\"%s,%s,%d,%s,%d,%lf\\n\", filename, funcname, line, \
+       varname, version, va_arg(ap, double));\n";
+      "    } else if (strcmp(which_type, \"long double\") == 0) {\n";
+      "      printf(\"%s,%s,%d,%s,%d,%lf\\n\", filename, funcname, line, \
+       varname, version, va_arg(ap, long double));\n";
+      "    } else if (strcmp(which_type, \"string\") == 0) {\n";
+      "      printf(\"%s,%s,%d,%s,%d,%s\\n\", filename, funcname, line, \
+       varname, version, va_arg(ap, const char*));\n";
+      "    } else if (strcmp(which_type, \"NA\") == 0) {\n";
+      "      printf(\"%s,%s,%d,%s,%d,NA\\n\", filename, funcname, line, \
+       varname, version);\n";
+      "    }\n";
+      "  }\n";
+      "}\n";
+      "#endif\n";
+      "/* UNIVAL :: INSTRUMENTATION :: END */\n";
+    ]
+
 let file_instrument filename =
   let read_whole_file filename =
     let ch = open_in filename in
@@ -58,7 +126,10 @@ let file_instrument filename =
     s
   in
   let c_code = read_whole_file filename in
-  let instr_c_code = instrument_code () ^ c_code in
+  let unival_instr =
+    if !Cmdline.engine = Cmdline.UniVal then unival_record_code () else ""
+  in
+  let instr_c_code = instrument_code () ^ unival_instr ^ c_code in
   let oc = open_out filename in
   Printf.fprintf oc "%s" instr_c_code;
   close_out oc
