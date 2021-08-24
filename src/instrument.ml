@@ -171,7 +171,6 @@ module GSA = struct
 
   let new_pred () =
     pred_num := !pred_num + 1;
-    print_endline (string_of_int !pred_num);
     "OOJAHOOO_PRED_" ^ string_of_int !pred_num
 
   class assignInitializer f =
@@ -199,8 +198,8 @@ module GSA = struct
 
       method! vblock b =
         let new_stmts = List.fold_left add_predicate_var [] b.Cil.bstmts in
-        let new_block = Cil.mkBlock new_stmts in
-        ChangeTo new_block
+        b.bstmts <- new_stmts;
+        DoChildren
     end
 
   class predicateVisitor =
@@ -208,7 +207,12 @@ module GSA = struct
       inherit Cil.nopCilVisitor
 
       method! vfunc f =
-        ChangeTo (Cil.visitCilFunction (new assignInitializer f) f)
+        if
+          String.length f.svar.vname >= 6
+          && (String.equal (String.sub f.svar.vname 0 6) "bugzoo"
+             || String.equal (String.sub f.svar.vname 0 6) "unival")
+        then SkipChildren
+        else ChangeTo (Cil.visitCilFunction (new assignInitializer f) f)
     end
 
   let predicate_transform pp_file =
@@ -271,20 +275,56 @@ module GSA = struct
       let pred_prefix = Str.regexp "OOJAHOOO_PRED_\[0-9\]\+" in
       Str.string_match pred_prefix vname 0
     in
+    let rec string_of_typ = function
+      | Cil.TInt (Cil.IChar, _) -> "char"
+      | Cil.TInt (Cil.ISChar, _) -> "signed char"
+      | Cil.TInt (Cil.IUChar, _) -> "unsigned char"
+      | Cil.TInt (Cil.IInt, _) -> "int"
+      | Cil.TInt (Cil.IUInt, _) -> "unsigned int"
+      | Cil.TInt (Cil.IShort, _) -> "short"
+      | Cil.TInt (Cil.IUShort, _) -> "unsigned short"
+      | Cil.TInt (Cil.ILong, _) -> "long"
+      | Cil.TInt (Cil.IULong, _) -> "unsigned long"
+      | Cil.TFloat (Cil.FFloat, _) -> "float"
+      | Cil.TFloat (Cil.FDouble, _) -> "double"
+      | Cil.TFloat (Cil.FLongDouble, _) -> "long double"
+      | Cil.TPtr (Cil.TInt (Cil.IChar, _), _) -> "string"
+      | Cil.TNamed (t, _) -> string_of_typ t.ttype
+      | _ -> "NA"
+    in
     let call_record var vname ver loc =
       let fun_name = f.Cil.svar.vname in
-      Cil.Call
-        ( None,
-          Cil.Lval (Cil.Var record_func, Cil.NoOffset),
-          [
-            Cil.Const (CStr loc.Cil.file);
-            Cil.Const (Cil.CStr fun_name);
-            Cil.Const (Cil.CInt64 (Int64.of_int loc.Cil.line, Cil.IInt, None));
-            Cil.Const (Cil.CStr vname);
-            Cil.Const (Cil.CInt64 (Int64.of_int ver, Cil.IInt, None));
-            Cil.Lval var;
-          ],
-          loc )
+      let t = string_of_typ (Cil.typeOfLval var) in
+      match t with
+      | "NA" ->
+          Cil.Call
+            ( None,
+              Cil.Lval (Cil.Var record_func, Cil.NoOffset),
+              [
+                Cil.Const (CStr loc.Cil.file);
+                Cil.Const (Cil.CStr fun_name);
+                Cil.Const
+                  (Cil.CInt64 (Int64.of_int loc.Cil.line, Cil.IInt, None));
+                Cil.Const (Cil.CStr vname);
+                Cil.Const (Cil.CInt64 (Int64.of_int ver, Cil.IInt, None));
+                Cil.Const (Cil.CStr t);
+              ],
+              loc )
+      | _ ->
+          Cil.Call
+            ( None,
+              Cil.Lval (Cil.Var record_func, Cil.NoOffset),
+              [
+                Cil.Const (CStr loc.Cil.file);
+                Cil.Const (Cil.CStr fun_name);
+                Cil.Const
+                  (Cil.CInt64 (Int64.of_int loc.Cil.line, Cil.IInt, None));
+                Cil.Const (Cil.CStr vname);
+                Cil.Const (Cil.CInt64 (Int64.of_int ver, Cil.IInt, None));
+                Cil.Const (Cil.CStr t);
+                Cil.Lval var;
+              ],
+              loc )
     in
     let ass2gsa result instr =
       let gogo, lv, lval, exp_vars, loc =
@@ -397,14 +437,20 @@ module GSA = struct
       inherit Cil.nopCilVisitor
 
       method! vfunc f =
-        var_ver := origin_var_ver;
-        List.iter
-          (fun form -> var_ver := VarVerMap.add form.Cil.vname 0 !var_ver)
-          f.Cil.sformals;
-        List.iter
-          (fun form -> var_ver := VarVerMap.add form.Cil.vname 0 !var_ver)
-          f.Cil.slocals;
-        ChangeTo (Cil.visitCilFunction (new assignVisitor record_func f) f)
+        if
+          String.length f.svar.vname >= 6
+          && (String.equal (String.sub f.svar.vname 0 6) "bugzoo"
+             || String.equal (String.sub f.svar.vname 0 6) "unival")
+        then Cil.SkipChildren
+        else (
+          var_ver := origin_var_ver;
+          List.iter
+            (fun form -> var_ver := VarVerMap.add form.Cil.vname 0 !var_ver)
+            f.Cil.sformals;
+          List.iter
+            (fun form -> var_ver := VarVerMap.add form.Cil.vname 0 !var_ver)
+            f.Cil.slocals;
+          ChangeTo (Cil.visitCilFunction (new assignVisitor record_func f) f))
     end
 
   let extract_gvar globals =
@@ -431,7 +477,7 @@ module GSA = struct
           VarVerMap.empty global_vars;
       let record_func =
         Cil.findOrCreateFunc cil "unival_record"
-          (Cil.TFun (Cil.voidType, None, false, []))
+          (Cil.TFun (Cil.intType, None, true, []))
       in
       Cil.visitCilFile (new funAssignVisitor record_func !var_ver) cil;
       let oc = open_out pt_file in
