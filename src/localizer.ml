@@ -221,7 +221,7 @@ let print locations resultname =
   close_out oc
 
 let coverage work_dir bug_desc =
-  let scenario = Scenario.init ~skip_bugzoo_instrument:true work_dir in
+  let scenario = Scenario.init ~stdio_only:true work_dir in
   Unix.chdir scenario.Scenario.work_dir;
   Scenario.compile scenario bug_desc.BugDesc.compiler_type;
   Instrument.run scenario.work_dir;

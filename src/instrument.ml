@@ -525,18 +525,47 @@ module Coverage = struct
     | Cil.Set (_, _, l) | Cil.Call (_, _, _, l) | Cil.Asm (_, _, _, _, _, l) ->
         l
 
-  let printf_of printf loc =
+  let printf_of printf stream loc =
     Cil.Call
       ( None,
         Cil.Lval (Cil.Var printf, Cil.NoOffset),
         [
+          Cil.Lval (Cil.Var stream, Cil.NoOffset);
           Cil.Const (Cil.CStr "%s:%d\n");
           Cil.Const (Cil.CStr loc.Cil.file);
           Cil.integer loc.Cil.line;
         ],
         loc )
 
-  class instrumentVisitor printf =
+  let found_type = ref None
+
+  let found_gvar = ref None
+
+  class findTypeVisitor name =
+    object
+      inherit Cil.nopCilVisitor
+
+      method! vglob g =
+        match g with
+        | GCompTag (ci, _) ->
+            if ci.Cil.cname = name then found_type := Some ci;
+            SkipChildren
+        | _ -> SkipChildren
+    end
+
+  class findGVarVisitor name =
+    object
+      inherit Cil.nopCilVisitor
+
+      method! vglob g =
+        match g with
+        | GVarDecl (vi, _) ->
+            if vi.Cil.vname = name then found_gvar := Some vi;
+            SkipChildren
+        | _ -> SkipChildren
+    end
+
+  class instrumentVisitor printf stream =
     object
       inherit Cil.nopCilVisitor
 
@@ -548,7 +577,7 @@ module Coverage = struct
           List.fold_left
             (fun bstmts s ->
               let loc = Cil.get_stmtLoc s.Cil.skind in
-              let call = printf_of printf loc |> Cil.mkStmtOneInstr in
+              let call = printf_of printf stream loc |> Cil.mkStmtOneInstr in
               s :: call :: bstmts)
             [] blk.Cil.bstmts
           |> List.rev
@@ -566,20 +595,31 @@ module Coverage = struct
     if Option.is_none cil_opt then ()
     else
       let cil = Option.get cil_opt in
-      let printf =
-        Cil.findOrCreateFunc cil "printf"
-          (Cil.TFun
-             (Cil.voidType, Some [ ("format", Cil.charPtrType, []) ], true, []))
-      in
-      Cil.visitCilFile (new instrumentVisitor printf) cil;
-      Unix.system
-        ("cp " ^ origin_file ^ " "
-        ^ Filename.remove_extension pt_file
-        ^ ".origin.c")
-      |> ignore;
-      let oc = open_out origin_file in
-      Cil.dumpFile !Cil.printerForMaincil oc "" cil;
-      close_out oc
+      (* TODO: clean up *)
+      Cil.visitCilFile (new findTypeVisitor "_IO_FILE") cil;
+      Cil.visitCilFile (new findGVarVisitor "stderr") cil;
+      if Option.is_none !found_type || Option.is_none !found_gvar then ()
+      else
+        let fileptr = Cil.TPtr (Cil.TComp (Option.get !found_type, []), []) in
+        let printf =
+          Cil.findOrCreateFunc cil "fprintf"
+            (Cil.TFun
+               ( Cil.voidType,
+                 Some
+                   [ ("stream", fileptr, []); ("format", Cil.charPtrType, []) ],
+                 true,
+                 [] ))
+        in
+        let stream = Option.get !found_gvar in
+        Cil.visitCilFile (new instrumentVisitor printf stream) cil;
+        Unix.system
+          ("cp " ^ origin_file ^ " "
+          ^ Filename.remove_extension pt_file
+          ^ ".origin.c")
+        |> ignore;
+        let oc = open_out origin_file in
+        Cil.dumpFile !Cil.printerForMaincil oc "" cil;
+        close_out oc
 
   let run src_dir = GSA.traverse_pp_file instrument src_dir
 end

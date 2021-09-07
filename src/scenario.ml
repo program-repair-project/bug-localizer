@@ -5,7 +5,7 @@ type t = {
   coverage_data : string;
 }
 
-let instrument_code () =
+let bugzoo_instrument_code () =
   String.concat ""
     [
       "/* BUGZOO :: INSTRUMENTATION :: START */\n";
@@ -116,7 +116,7 @@ let unival_record_code filename =
       "/* UNIVAL :: INSTRUMENTATION :: END */\n";
     ]
 
-let file_instrument filename src_dir =
+let file_instrument filename src_dir preamble =
   let read_whole_file filename =
     let ch = open_in filename in
     let s = really_input_string ch (in_channel_length ch) in
@@ -139,12 +139,12 @@ let file_instrument filename src_dir =
       unival_record_code bn
     else ""
   in
-  let instr_c_code = instrument_code () ^ unival_instr ^ c_code in
+  let instr_c_code = preamble ^ unival_instr ^ c_code in
   let oc = open_out filename in
   Printf.fprintf oc "%s" instr_c_code;
   close_out oc
 
-let file_instrument_all work_dir =
+let file_instrument_all work_dir preamble =
   let rec traverse_file f root_dir =
     let files = Sys.readdir root_dir in
     Array.iter
@@ -154,19 +154,22 @@ let file_instrument_all work_dir =
         else if List.mem file !Cmdline.blacklist then ()
         else if Sys.is_directory file_path then traverse_file f file_path
         else if Filename.extension file = ".c" then
-          f file_path (Filename.concat work_dir "src")
+          f file_path (Filename.concat work_dir "src") preamble
         else ())
       files
   in
   traverse_file file_instrument work_dir
 
-let init ?(skip_bugzoo_instrument = false) work_dir =
+let init ?(stdio_only = false) work_dir =
   let work_dir =
     if Filename.is_relative work_dir then
       Filename.concat (Unix.getcwd ()) work_dir
     else work_dir
   in
-  if skip_bugzoo_instrument then () else file_instrument_all work_dir;
+  let preamble =
+    if stdio_only then "#include <stdio.h>" else bugzoo_instrument_code ()
+  in
+  file_instrument_all work_dir preamble;
   {
     work_dir;
     compile_script = Filename.concat work_dir "compile.sh";
