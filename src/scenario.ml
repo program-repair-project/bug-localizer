@@ -50,16 +50,15 @@ let instrument_code () =
       "/* BUGZOO :: INSTRUMENTATION :: END */\n";
     ]
 
-let unival_record_code () =
+let unival_record_code filename =
   String.concat ""
     [
       "/* UNIVAL :: INSTRUMENTATION :: START */\n";
       "#include <string.h>\n";
       "#include <stdarg.h>\n";
-      "#ifndef UNIVAL_RECORD\n";
-      "#define UNIVAL_RECORD 1\n";
-      "static void unival_record (char *filename, char *funcname, int line, \
-       char *varname, int version, ...) {\n";
+      "void unival_record_" ^ filename
+      ^ "(char *filename, char *funcname, int line, char *varname, int \
+         version, ...) {\n";
       "  va_list ap;\n";
       "  va_start(ap, version);\n";
       "  char *which_type = va_arg(ap, const char*);\n";
@@ -114,11 +113,10 @@ let unival_record_code () =
       "    }\n";
       "  }\n";
       "}\n";
-      "#endif\n";
       "/* UNIVAL :: INSTRUMENTATION :: END */\n";
     ]
 
-let file_instrument filename =
+let file_instrument filename src_dir =
   let read_whole_file filename =
     let ch = open_in filename in
     let s = really_input_string ch (in_channel_length ch) in
@@ -127,7 +125,19 @@ let file_instrument filename =
   in
   let c_code = read_whole_file filename in
   let unival_instr =
-    if !Cmdline.engine = Cmdline.UniVal then unival_record_code () else ""
+    if !Cmdline.engine = Cmdline.UniVal then
+      let bn =
+        Utils.dash2under_bar
+          (Filename.remove_extension (Filename.basename filename))
+      in
+      (* let oc = open_out (Filename.concat src_dir ("unival_" ^ bn ^ ".h")) in
+            Printf.fprintf oc
+              "extern void unival_record_%s(char *filename, char *funcname, int \
+               line, char *varname, int version, ...);\n"
+              bn;
+         close_out oc; *)
+      unival_record_code bn
+    else ""
   in
   let instr_c_code = instrument_code () ^ unival_instr ^ c_code in
   let oc = open_out filename in
@@ -143,7 +153,8 @@ let file_instrument_all work_dir =
         if (Unix.lstat file_path).st_kind = Unix.S_LNK then ()
         else if List.mem file !Cmdline.blacklist then ()
         else if Sys.is_directory file_path then traverse_file f file_path
-        else if Filename.extension file = ".c" then f file_path
+        else if Filename.extension file = ".c" then
+          f file_path (Filename.concat work_dir "src")
         else ())
       files
   in
