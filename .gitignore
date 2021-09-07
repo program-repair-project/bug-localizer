@@ -9,3 +9,6 @@ bug
 *.o
 *.s
 CausalMap.txt
+*.dot
+*.svg
+visualizer
