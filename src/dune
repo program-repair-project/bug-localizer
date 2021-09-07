@@ -10,5 +10,6 @@
   coverage
   bugDesc
   scenario
-  instrument)
+  instrument
+  utils)
  (libraries str cil cil.all-features xmlm unix yojson))
