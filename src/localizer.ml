@@ -190,10 +190,28 @@ let unival_compile scenario bug_desc =
   Scenario.compile scenario bug_desc.BugDesc.compiler_type;
   Unix.chdir scenario.Scenario.work_dir
 
+let unival_run_test work_dir scenario bug_desc =
+  Logging.log "Start test";
+  List.iter
+    (fun test ->
+      Unix.create_process scenario.Scenario.test_script
+        [| scenario.Scenario.test_script; test |]
+        Unix.stdin Unix.stdout
+        (* (Unix.openfile
+           (Filename.concat work_dir "output.txt")
+           [ Unix.O_CREAT; Unix.O_WRONLY; Unix.O_CREAT ]
+           0o775) *)
+        Unix.stderr
+      |> ignore;
+      Unix.wait () |> ignore)
+    bug_desc.BugDesc.test_cases
+
 let unival_localizer work_dir bug_desc =
   let scenario = Scenario.init work_dir in
   unival_compile scenario bug_desc;
   Instrument.run scenario.work_dir;
+  unival_compile scenario bug_desc;
+  unival_run_test work_dir scenario bug_desc;
   failwith "Not implemented"
 
 let print locations resultname =
