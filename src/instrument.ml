@@ -520,10 +520,58 @@ module GSA = struct
     print_cm work_dir !causal_map
 end
 
+module Coverage = struct
+  let location_of_instr = function
+    | Cil.Set (_, _, l) | Cil.Call (_, _, _, l) | Cil.Asm (_, _, _, _, _, l) ->
+        l
+
+  class instrumentVisitor printf =
+    object
+      inherit Cil.nopCilVisitor
+
+      method! vinst i =
+        let loc = location_of_instr i in
+        let call =
+          Cil.Call
+            ( None,
+              Cil.Lval (Cil.Var printf, Cil.NoOffset),
+              [
+                Cil.Const (Cil.CStr "%s:%d\n");
+                Cil.Const (Cil.CStr loc.file);
+                Cil.integer loc.line;
+              ],
+              loc )
+        in
+        Cil.ChangeTo [ call; i ]
+    end
+
+  let instrument pt_file =
+    let origin_file = Filename.remove_extension pt_file ^ ".c" in
+    Logging.log "Instrument Coverage %s (%s)" origin_file pt_file;
+    let cil_opt =
+      try Some (Frontc.parse pt_file ()) with Frontc.ParseError _ -> None
+    in
+    if Option.is_none cil_opt then ()
+    else
+      let cil = Option.get cil_opt in
+      let printf =
+        Cil.findOrCreateFunc cil "printf"
+          (Cil.TFun
+             (Cil.voidType, Some [ ("format", Cil.charPtrType, []) ], true, []))
+      in
+      Cil.visitCilFile (new instrumentVisitor printf) cil;
+      let oc = open_out origin_file in
+      Cil.dumpFile !Cil.printerForMaincil oc "" cil;
+      close_out oc
+
+  let run work_dir src_dir = GSA.traverse_pp_file instrument src_dir
+end
+
 let run work_dir =
   Cil.initCIL ();
   let src_dir = Filename.concat work_dir "src" in
   match !Cmdline.instrument with
   | Cmdline.DfSan -> DfSan.run work_dir src_dir
   | Cmdline.GSA -> GSA.run work_dir src_dir
+  | Cmdline.Coverage -> Coverage.run work_dir src_dir
   | Cmdline.Nothing -> ()

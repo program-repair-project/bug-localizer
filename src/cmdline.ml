@@ -2,7 +2,7 @@ let work_dir : string option ref = ref None
 
 let out_dir = ref "localizer-out"
 
-type instrument = DfSan | GSA | Nothing
+type instrument = DfSan | GSA | Coverage | Nothing
 
 let instrument = ref Nothing
 
@@ -10,11 +10,20 @@ let select_instrument s =
   match s with
   | "dfsan" -> instrument := DfSan
   | "gsa" -> instrument := GSA
+  | "coverage" -> instrument := Coverage
   | _ -> failwith "Unknown instrument"
 
 let skip_compile = ref false
 
-type engine = Tarantula | Prophet | Jaccard | Ochiai | Dummy | UniVal | All
+type engine =
+  | Tarantula
+  | Prophet
+  | Jaccard
+  | Ochiai
+  | Dummy
+  | UniVal
+  | Coverage
+  | All
 
 let engine = ref Dummy
 
@@ -28,6 +37,9 @@ let select_engine s =
   | "unival" ->
       engine := UniVal;
       instrument := GSA
+  | "coverage" ->
+      engine := Coverage;
+      instrument := Coverage
   | "all" -> engine := All
   | _ -> failwith "Unknown engine"
 

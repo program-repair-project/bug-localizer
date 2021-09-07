@@ -220,6 +220,12 @@ let print locations resultname =
   List.iter (fun l -> F.fprintf fmt "%a\n" BugLocation.pp l) locations;
   close_out oc
 
+let coverage work_dir bug_desc =
+  let scenario = Scenario.init work_dir in
+  Unix.chdir scenario.Scenario.work_dir;
+  Instrument.run scenario.work_dir;
+  Scenario.compile scenario bug_desc.BugDesc.compiler_type
+
 let run work_dir =
   Logging.log "Start localization";
   let bug_desc = BugDesc.read work_dir in
@@ -252,4 +258,5 @@ let run work_dir =
         |> (jaccard_localizer work_dir bug_desc locations |> print);
         "result_ochiai.txt"
         |> (ochiai_localizer work_dir bug_desc locations |> print)
+    | Cmdline.Coverage -> coverage work_dir bug_desc
     | Cmdline.UniVal -> ()
