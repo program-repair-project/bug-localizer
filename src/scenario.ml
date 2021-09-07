@@ -160,13 +160,13 @@ let file_instrument_all work_dir =
   in
   traverse_file file_instrument work_dir
 
-let init work_dir =
+let init ?(skip_bugzoo_instrument = false) work_dir =
   let work_dir =
     if Filename.is_relative work_dir then
       Filename.concat (Unix.getcwd ()) work_dir
     else work_dir
   in
-  file_instrument_all work_dir;
+  if skip_bugzoo_instrument then () else file_instrument_all work_dir;
   {
     work_dir;
     compile_script = Filename.concat work_dir "compile.sh";

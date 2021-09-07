@@ -221,9 +221,11 @@ let print locations resultname =
   close_out oc
 
 let coverage work_dir bug_desc =
-  let scenario = Scenario.init work_dir in
+  let scenario = Scenario.init ~skip_bugzoo_instrument:true work_dir in
   Unix.chdir scenario.Scenario.work_dir;
+  Scenario.compile scenario bug_desc.BugDesc.compiler_type;
   Instrument.run scenario.work_dir;
+  Unix.chdir scenario.Scenario.work_dir;
   Scenario.compile scenario bug_desc.BugDesc.compiler_type
 
 let run work_dir =
@@ -233,23 +235,27 @@ let run work_dir =
   if !Cmdline.engine = Cmdline.UniVal then
     "result_unival.txt" |> (unival_localizer work_dir bug_desc |> print)
   else
-    let locations = spec_localizer work_dir bug_desc in
     match !Cmdline.engine with
     | Cmdline.Dummy ->
         "result_dummy.txt" |> (dummy_localizer work_dir bug_desc |> print)
     | Cmdline.Tarantula ->
+        let locations = spec_localizer work_dir bug_desc in
         "result_tarantula.txt"
         |> (tarantula_localizer work_dir bug_desc locations |> print)
     | Cmdline.Prophet ->
+        let locations = spec_localizer work_dir bug_desc in
         "result_prophet.txt"
         |> (prophet_localizer work_dir bug_desc locations |> print)
     | Cmdline.Jaccard ->
+        let locations = spec_localizer work_dir bug_desc in
         "result_jaccard.txt"
         |> (jaccard_localizer work_dir bug_desc locations |> print)
     | Cmdline.Ochiai ->
+        let locations = spec_localizer work_dir bug_desc in
         "result_ochiai.txt"
         |> (ochiai_localizer work_dir bug_desc locations |> print)
     | Cmdline.All ->
+        let locations = spec_localizer work_dir bug_desc in
         "result_prophet.txt"
         |> (prophet_localizer work_dir bug_desc locations |> print);
         "result_tarantula.txt"
