@@ -529,6 +529,9 @@ module Coverage = struct
     object
       inherit Cil.nopCilVisitor
 
+      method! vfunc fd =
+        if fd.Cil.svar.vname = "bugzoo_ctor" then SkipChildren else DoChildren
+
       method! vinst i =
         let loc = location_of_instr i in
         let call =
@@ -560,11 +563,16 @@ module Coverage = struct
              (Cil.voidType, Some [ ("format", Cil.charPtrType, []) ], true, []))
       in
       Cil.visitCilFile (new instrumentVisitor printf) cil;
+      Unix.system
+        ("cp " ^ origin_file ^ " "
+        ^ Filename.remove_extension pt_file
+        ^ ".origin.c")
+      |> ignore;
       let oc = open_out origin_file in
       Cil.dumpFile !Cil.printerForMaincil oc "" cil;
       close_out oc
 
-  let run work_dir src_dir = GSA.traverse_pp_file instrument src_dir
+  let run src_dir = GSA.traverse_pp_file instrument src_dir
 end
 
 let run work_dir =
@@ -573,5 +581,5 @@ let run work_dir =
   match !Cmdline.instrument with
   | Cmdline.DfSan -> DfSan.run work_dir src_dir
   | Cmdline.GSA -> GSA.run work_dir src_dir
-  | Cmdline.Coverage -> Coverage.run work_dir src_dir
+  | Cmdline.Coverage -> Coverage.run src_dir
   | Cmdline.Nothing -> ()
