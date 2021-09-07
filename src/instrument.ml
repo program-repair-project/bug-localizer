@@ -462,7 +462,8 @@ module GSA = struct
       globals
 
   let gsa_gen pt_file =
-    let origin_file = Filename.remove_extension pt_file ^ ".c" in
+    let ext_removed_file = Filename.remove_extension pt_file in
+    let origin_file = ext_removed_file ^ ".c" in
     Logging.log "GSA_Gen %s (%s)" origin_file pt_file;
     let cil_opt =
       try Some (Frontc.parse pt_file ()) with Frontc.ParseError _ -> None
@@ -476,13 +477,15 @@ module GSA = struct
           (fun vv gv -> VarVerMap.add gv 0 vv)
           VarVerMap.empty global_vars;
       let record_func =
-        Cil.findOrCreateFunc cil "unival_record"
+        Cil.findOrCreateFunc cil
+          ("unival_record_"
+          ^ Utils.dash2under_bar (Filename.basename ext_removed_file))
           (Cil.TFun (Cil.intType, None, true, []))
       in
       Cil.visitCilFile (new funAssignVisitor record_func !var_ver) cil;
-      let oc = open_out pt_file in
-      Cil.dumpFile !Cil.printerForMaincil oc "" cil;
-      close_out oc
+      let oc_dotc = open_out (ext_removed_file ^ ".c") in
+      Cil.dumpFile !Cil.printerForMaincil oc_dotc "" cil;
+      close_out oc_dotc
 
   let rec traverse_pp_file f root_dir =
     let files = Sys.readdir root_dir in
@@ -496,19 +499,13 @@ module GSA = struct
         else ())
       files
 
-  let rec join strlist delimiter =
-    match strlist with
-    | [ hd ] -> hd
-    | hd :: tl -> hd ^ delimiter ^ join tl delimiter
-    | [] -> ""
-
   let print_cm work_dir causal_map =
     let output_file = Filename.concat work_dir "CausalMap.txt" in
     let oc = open_out output_file in
     let cm_str =
-      join
+      Utils.join
         (CausalMap.fold
-           (fun var parents res -> join (var :: parents) "," :: res)
+           (fun var parents res -> Utils.join (var :: parents) "," :: res)
            causal_map [])
         "\n"
     in
@@ -519,6 +516,7 @@ module GSA = struct
     traverse_pp_file
       (fun pp_file -> pp_file |> predicate_transform |> gsa_gen)
       src_dir;
+    Utils.remove_temp_files src_dir;
     print_cm work_dir !causal_map
 end
 
