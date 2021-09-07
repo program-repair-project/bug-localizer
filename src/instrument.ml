@@ -525,6 +525,17 @@ module Coverage = struct
     | Cil.Set (_, _, l) | Cil.Call (_, _, _, l) | Cil.Asm (_, _, _, _, _, l) ->
         l
 
+  let printf_of printf loc =
+    Cil.Call
+      ( None,
+        Cil.Lval (Cil.Var printf, Cil.NoOffset),
+        [
+          Cil.Const (Cil.CStr "%s:%d\n");
+          Cil.Const (Cil.CStr loc.Cil.file);
+          Cil.integer loc.Cil.line;
+        ],
+        loc )
+
   class instrumentVisitor printf =
     object
       inherit Cil.nopCilVisitor
@@ -532,20 +543,18 @@ module Coverage = struct
       method! vfunc fd =
         if fd.Cil.svar.vname = "bugzoo_ctor" then SkipChildren else DoChildren
 
-      method! vinst i =
-        let loc = location_of_instr i in
-        let call =
-          Cil.Call
-            ( None,
-              Cil.Lval (Cil.Var printf, Cil.NoOffset),
-              [
-                Cil.Const (Cil.CStr "%s:%d\n");
-                Cil.Const (Cil.CStr loc.file);
-                Cil.integer loc.line;
-              ],
-              loc )
+      method! vblock blk =
+        let bstmts =
+          List.fold_left
+            (fun bstmts s ->
+              let loc = Cil.get_stmtLoc s.Cil.skind in
+              let call = printf_of printf loc |> Cil.mkStmtOneInstr in
+              s :: call :: bstmts)
+            [] blk.Cil.bstmts
+          |> List.rev
         in
-        Cil.ChangeTo [ call; i ]
+        blk.bstmts <- bstmts;
+        Cil.DoChildren
     end
 
   let instrument pt_file =
