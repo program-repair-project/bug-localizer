@@ -594,7 +594,7 @@ module Coverage = struct
         Cil.DoChildren
     end
 
-  let preamble =
+  let preamble src_dir =
     String.concat ""
       [
         "/* COVERAGE :: INSTRUMENTATION :: START */\n";
@@ -605,7 +605,7 @@ module Coverage = struct
         "extern int fclose(FILE *__stream ) ;";
         "static void coverage_ctor (void) __attribute__ ((constructor));\n";
         "static void coverage_ctor (void) {\n";
-        "  __cov_stream = fopen(\"coverage.txt\", \"w\");\n";
+        "  __cov_stream = fopen(\"" ^ src_dir ^ "/coverage.txt\", \"w\");\n";
         "}\n";
         "static void coverage_dtor (void) __attribute__ ((destroctor));\n";
         "static void coverage_dtor (void) {\n";
@@ -614,19 +614,19 @@ module Coverage = struct
         "/* COVERAGE :: INSTRUMENTATION :: END */\n";
       ]
 
-  let append_constructor filename =
+  let append_constructor work_dir filename =
     let read_whole_file filename =
       let ch = open_in filename in
       let s = really_input_string ch (in_channel_length ch) in
       close_in ch;
       s
     in
-    let instr_c_code = preamble ^ read_whole_file filename in
+    let instr_c_code = preamble work_dir ^ read_whole_file filename in
     let oc = open_out filename in
     Printf.fprintf oc "%s" instr_c_code;
     close_out oc
 
-  let instrument pt_file =
+  let instrument work_dir pt_file =
     let origin_file = Filename.remove_extension pt_file ^ ".c" in
     Logging.log "Instrument Coverage %s (%s)" origin_file pt_file;
     let cil_opt =
@@ -665,10 +665,10 @@ module Coverage = struct
         let oc = open_out origin_file in
         Cil.dumpFile !Cil.printerForMaincil oc "" cil;
         close_out oc;
-        if Filename.basename origin_file = "tif_unix.c" then
-          append_constructor origin_file
+        if List.mem (Filename.basename origin_file) [ "gzip.c"; "tif_unix.c" ]
+        then append_constructor work_dir origin_file
 
-  let run src_dir = GSA.traverse_pp_file instrument src_dir
+  let run work_dir src_dir = GSA.traverse_pp_file (instrument work_dir) src_dir
 end
 
 let run work_dir =
@@ -677,5 +677,5 @@ let run work_dir =
   match !Cmdline.instrument with
   | Cmdline.DfSan -> DfSan.run work_dir src_dir
   | Cmdline.GSA -> GSA.run work_dir src_dir
-  | Cmdline.Coverage -> Coverage.run src_dir
+  | Cmdline.Coverage -> Coverage.run work_dir src_dir
   | Cmdline.Nothing -> ()

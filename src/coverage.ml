@@ -180,7 +180,7 @@ module LineCoverage2 = struct
     (* compile to extract *.i *)
     Scenario.compile scenario bug_desc.BugDesc.compiler_type;
     let src_dir = Filename.concat scenario.work_dir "src" in
-    Instrument.Coverage.run src_dir;
+    Instrument.Coverage.run scenario.work_dir src_dir;
     Unix.chdir scenario.Scenario.work_dir;
     (* compile instrumented files *)
     Scenario.compile scenario bug_desc.BugDesc.compiler_type;
@@ -190,7 +190,7 @@ module LineCoverage2 = struct
       (fun coverage test ->
         Scenario.run_test scenario.test_script test;
         update_coverage
-          (Filename.concat (Filename.concat src_dir "test") "coverage.txt")
+          (Filename.concat scenario.work_dir "coverage.txt")
           test coverage)
       empty bug_desc.BugDesc.test_cases
     |> List.map elem_of_internal
