@@ -537,6 +537,13 @@ module Coverage = struct
         ],
         loc )
 
+  let flush_of flush stream loc =
+    Cil.Call
+      ( None,
+        Cil.Lval (Cil.Var flush, Cil.NoOffset),
+        [ Cil.Lval (Cil.Var stream, Cil.NoOffset) ],
+        loc )
+
   let found_type = ref None
 
   let found_gvar = ref None
@@ -565,7 +572,7 @@ module Coverage = struct
         | _ -> SkipChildren
     end
 
-  class instrumentVisitor printf stream =
+  class instrumentVisitor printf flush stream =
     object
       inherit Cil.nopCilVisitor
 
@@ -578,13 +585,46 @@ module Coverage = struct
             (fun bstmts s ->
               let loc = Cil.get_stmtLoc s.Cil.skind in
               let call = printf_of printf stream loc |> Cil.mkStmtOneInstr in
-              s :: call :: bstmts)
+              let flush = flush_of flush stream loc |> Cil.mkStmtOneInstr in
+              s :: flush :: call :: bstmts)
             [] blk.Cil.bstmts
           |> List.rev
         in
         blk.bstmts <- bstmts;
         Cil.DoChildren
     end
+
+  let preamble =
+    String.concat ""
+      [
+        "/* COVERAGE :: INSTRUMENTATION :: START */\n";
+        "typedef struct _IO_FILE FILE;";
+        "struct _IO_FILE *__cov_stream ;";
+        "extern FILE *fopen(char const   * __restrict  __filename , char \
+         const   * __restrict  __modes ) ;";
+        "extern int fclose(FILE *__stream ) ;";
+        "static void coverage_ctor (void) __attribute__ ((constructor));\n";
+        "static void coverage_ctor (void) {\n";
+        "  __cov_stream = fopen(\"coverage.txt\", \"w\");\n";
+        "}\n";
+        "static void coverage_dtor (void) __attribute__ ((destroctor));\n";
+        "static void coverage_dtor (void) {\n";
+        "  fclose(__cov_stream);\n";
+        "}\n";
+        "/* COVERAGE :: INSTRUMENTATION :: END */\n";
+      ]
+
+  let append_constructor filename =
+    let read_whole_file filename =
+      let ch = open_in filename in
+      let s = really_input_string ch (in_channel_length ch) in
+      close_in ch;
+      s
+    in
+    let instr_c_code = preamble ^ read_whole_file filename in
+    let oc = open_out filename in
+    Printf.fprintf oc "%s" instr_c_code;
+    close_out oc
 
   let instrument pt_file =
     let origin_file = Filename.remove_extension pt_file ^ ".c" in
@@ -610,8 +650,13 @@ module Coverage = struct
                  true,
                  [] ))
         in
-        let stream = Option.get !found_gvar in
-        Cil.visitCilFile (new instrumentVisitor printf stream) cil;
+        let flush =
+          Cil.findOrCreateFunc cil "fflush"
+            (Cil.TFun (Cil.voidType, Some [ ("stream", fileptr, []) ], false, []))
+        in
+        let stream = Cil.makeGlobalVar "__cov_stream" fileptr in
+        cil.globals <- Cil.GVarDecl (stream, Cil.locUnknown) :: cil.globals;
+        Cil.visitCilFile (new instrumentVisitor printf flush stream) cil;
         Unix.system
           ("cp " ^ origin_file ^ " "
           ^ Filename.remove_extension pt_file
@@ -619,7 +664,9 @@ module Coverage = struct
         |> ignore;
         let oc = open_out origin_file in
         Cil.dumpFile !Cil.printerForMaincil oc "" cil;
-        close_out oc
+        close_out oc;
+        if Filename.basename origin_file = "tif_unix.c" then
+          append_constructor origin_file
 
   let run src_dir = GSA.traverse_pp_file instrument src_dir
 end

@@ -1,5 +1,5 @@
 module F = Format
-module LineCoverage = Coverage.LineCoverage
+module LineCoverage = Coverage.LineCoverage2
 
 module BugLocation = struct
   type t = Cil.location * float * float * float
@@ -43,7 +43,7 @@ let spec_localizer work_dir bug_desc =
   copy_src ();
   let locations =
     List.fold_left
-      (fun locs elem ->
+      (fun locs (elem : LineCoverage.elem) ->
         let regexp_pos = Str.regexp "p.*" in
         Coverage.StrMap.fold
           (fun file lines locs ->
