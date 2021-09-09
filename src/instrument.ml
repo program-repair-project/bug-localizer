@@ -584,10 +584,27 @@ module Coverage = struct
         let bstmts =
           List.fold_left
             (fun bstmts s ->
-              let loc = Cil.get_stmtLoc s.Cil.skind in
-              let call = printf_of printf stream loc |> Cil.mkStmtOneInstr in
-              let flush = flush_of flush stream loc |> Cil.mkStmtOneInstr in
-              s :: flush :: call :: bstmts)
+              match s.Cil.skind with
+              | Cil.Instr insts ->
+                  let new_insts =
+                    List.fold_left
+                      (fun is i ->
+                        let loc = Cil.get_instrLoc i in
+                        let call = printf_of printf stream loc in
+                        let flush = flush_of flush stream loc in
+                        i :: flush :: call :: is)
+                      [] insts
+                    |> List.rev
+                  in
+                  s.skind <- Cil.Instr new_insts;
+                  s :: bstmts
+              | _ ->
+                  let loc = Cil.get_stmtLoc s.Cil.skind in
+                  let call =
+                    printf_of printf stream loc |> Cil.mkStmtOneInstr
+                  in
+                  let flush = flush_of flush stream loc |> Cil.mkStmtOneInstr in
+                  s :: flush :: call :: bstmts)
             [] blk.Cil.bstmts
           |> List.rev
         in
