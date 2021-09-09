@@ -492,7 +492,8 @@ module GSA = struct
     Array.iter
       (fun file ->
         let file_path = Filename.concat root_dir file in
-        if Sys.is_directory file_path then
+        if (Unix.lstat file_path).st_kind = Unix.S_LNK then ()
+        else if Sys.is_directory file_path then
           if Filename.check_suffix file_path ".hg" then ()
           else traverse_pp_file f file_path
         else if Filename.extension file = ".i" then f file_path
