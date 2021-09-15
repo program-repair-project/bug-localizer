@@ -28,7 +28,7 @@ let bugzoo_instrument_code () =
       "#endif\n";
       "#ifndef BUGZOO_CTOR\n";
       "#define BUGZOO_CTOR 1\n";
-      "static void bugzoo_ctor (void) __attribute__ ((constructor));\n";
+      "static void bugzoo_ctor (void) __attribute__ ((constructor(103)));\n";
       "static void bugzoo_ctor (void) {\n";
       "  struct sigaction new_action;\n";
       "  new_action.sa_handler = bugzoo_sighandler;\n";
@@ -167,7 +167,8 @@ let init ?(stdio_only = false) work_dir =
     else work_dir
   in
   let preamble =
-    if stdio_only then "#include <stdio.h>" else bugzoo_instrument_code ()
+    (* if stdio_only then "#include <stdio.h>" else bugzoo_instrument_code () *)
+    bugzoo_instrument_code ()
   in
   file_instrument_all work_dir preamble;
   {
