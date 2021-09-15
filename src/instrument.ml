@@ -621,11 +621,13 @@ module Coverage = struct
         "extern FILE *fopen(char const   * __restrict  __filename , char \
          const   * __restrict  __modes ) ;";
         "extern int fclose(FILE *__stream ) ;";
-        "static void coverage_ctor (void) __attribute__ ((constructor));\n";
+        "static void coverage_ctor (void) __attribute__ ((constructor(101)));\n";
         "static void coverage_ctor (void) {\n";
-        "  __cov_stream = fopen(\"" ^ src_dir ^ "/coverage.txt\", \"w\");\n";
+        "  __cov_stream = fopen(\"" ^ src_dir ^ "/coverage.txt\", \"a\");\n";
+        "  fprintf(__cov_stream, \"__START_NEW_EXECUTION__\\n\");\n";
+        "  fflush(__cov_stream);\n";
         "}\n";
-        "static void coverage_dtor (void) __attribute__ ((destroctor));\n";
+        "static void coverage_dtor (void) __attribute__ ((destructor(101)));\n";
         "static void coverage_dtor (void) {\n";
         "  fclose(__cov_stream);\n";
         "}\n";
@@ -680,10 +682,16 @@ module Coverage = struct
           ^ Filename.remove_extension pt_file
           ^ ".origin.c")
         |> ignore;
-        let oc = open_out origin_file in
-        Cil.dumpFile !Cil.printerForMaincil oc "" cil;
-        close_out oc;
-        if List.mem (Filename.basename origin_file) [ "gzip.c"; "tif_unix.c" ]
+        (if List.mem (Filename.basename origin_file) [ "proc_open.c"; "cast.c" ]
+        then ()
+        else
+          let oc = open_out origin_file in
+          Cil.dumpFile !Cil.printerForMaincil oc "" cil;
+          close_out oc);
+        if
+          List.mem
+            (Filename.basename origin_file)
+            [ "gzip.c"; "tif_unix.c"; "http_auth.c" ]
         then append_constructor work_dir origin_file
 
   let run work_dir src_dir = GSA.traverse_pp_file (instrument work_dir) src_dir

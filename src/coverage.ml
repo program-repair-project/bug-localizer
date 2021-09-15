@@ -155,7 +155,7 @@ module LineCoverage2 = struct
     let elem =
       List.fold_left
         (fun elem line ->
-          if line = "" then elem
+          if List.mem line [ ""; "__START_NEW_EXECUTION__" ] then elem
           else
             let lst = String.split_on_char ':' line in
             let filename, lineno =
@@ -186,12 +186,15 @@ module LineCoverage2 = struct
     Scenario.compile scenario bug_desc.BugDesc.compiler_type;
     Unix.chdir scenario.Scenario.work_dir;
     Logging.log "Start test";
+    let cov_path = Filename.concat scenario.work_dir "coverage.txt" in
     List.fold_left
       (fun coverage test ->
         Scenario.run_test scenario.test_script test;
-        update_coverage
-          (Filename.concat scenario.work_dir "coverage.txt")
-          test coverage)
+        let cur_cov_path =
+          Filename.concat !Cmdline.out_dir ("coverage." ^ test ^ ".txt")
+        in
+        Unix.system ("mv " ^ cov_path ^ " " ^ cur_cov_path) |> ignore;
+        update_coverage cur_cov_path test coverage)
       empty bug_desc.BugDesc.test_cases
     |> List.map elem_of_internal
 end
