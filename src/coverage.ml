@@ -151,7 +151,10 @@ module LineCoverage2 = struct
     s
 
   let update_coverage coverage_data test coverage =
-    let data = read_whole_file coverage_data |> String.split_on_char '\n' in
+    let data =
+      try read_whole_file coverage_data |> String.split_on_char '\n'
+      with Sys_error _ -> []
+    in
     let elem =
       List.fold_left
         (fun elem line ->
