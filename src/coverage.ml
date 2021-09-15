@@ -4,7 +4,11 @@ module StrMap = Map.Make (String)
 (* Line-level coverage using gcov *)
 module LineCoverage = struct
   (* reference: https://github.com/squaresLab/BugZoo/blob/a87f03b2e33c2097c21c0175e613f4e95d9825eb/bugzoo/core/coverage.py#L106 *)
-  type elem = { test : string; coverage : int list StrMap.t }
+  type elem = {
+    test : string;
+    coverage : int list StrMap.t;
+    linehistory : (int * int) list;
+  }
 
   type t = elem list
 
@@ -12,7 +16,7 @@ module LineCoverage = struct
 
   type tree = E of Xmlm.tag * tree list | D of string
 
-  let elem_of test = { test; coverage = StrMap.empty }
+  let elem_of test = { test; coverage = StrMap.empty; linehistory = [] }
 
   let read_xml file =
     let ic = open_in file in
@@ -76,7 +80,7 @@ module LineCoverage = struct
       (fun file lines -> F.fprintf fmt "%s: %a\n" file pp_lines lines)
       cov
 
-  let pp_elem fmt { test; coverage } =
+  let pp_elem fmt { test; coverage; linehistory } =
     F.fprintf fmt "test: %s\ncoverage:\n%a\n" test pp_coverage coverage
 
   let pp fmt cov = List.iter (fun elem -> pp_elem fmt elem) cov
@@ -125,12 +129,16 @@ module LineCoverage2 = struct
   end)
 
   (* reference: https://github.com/squaresLab/BugZoo/blob/a87f03b2e33c2097c21c0175e613f4e95d9825eb/bugzoo/core/coverage.py#L106 *)
-  type elem_internal = { test : string; coverage_set : IntSet.t StrMap.t }
+  type elem_internal = {
+    test : string;
+    coverage_set : IntSet.t StrMap.t;
+    linehistory : (int * int) list;
+  }
 
-  let elem_of test = { test; coverage_set = StrMap.empty }
+  let elem_of test = { test; coverage_set = StrMap.empty; linehistory = [] }
 
-  let elem_of_internal { test; coverage_set } =
-    { test; coverage = StrMap.map IntSet.elements coverage_set }
+  let elem_of_internal { test; coverage_set; linehistory } =
+    { test; coverage = StrMap.map IntSet.elements coverage_set; linehistory }
 
   let compute_coverage coverage_data =
     if Sys.file_exists coverage_data then Unix.unlink coverage_data;
@@ -172,6 +180,11 @@ module LineCoverage2 = struct
                     | Some s -> Some (IntSet.add lineno s)
                     | None -> Some (IntSet.singleton lineno))
                   elem.coverage_set;
+              linehistory =
+                ( lineno,
+                  if elem.linehistory = [] then 0
+                  else snd (List.hd elem.linehistory) + 1 )
+                :: elem.linehistory;
             })
         (elem_of test) data
     in
