@@ -31,3 +31,28 @@ let rec remove_temp_files root_dir =
     files
 
 let dash2under_bar s = String.map (fun c -> if c = '-' then '_' else c) s
+
+let rec traverse_pp_file f root_dir =
+  let files = Sys.readdir root_dir in
+  Array.iter
+    (fun file ->
+      let file_path = Filename.concat root_dir file in
+      if (Unix.lstat file_path).st_kind = Unix.S_LNK then ()
+      else if Sys.is_directory file_path then
+        if Filename.check_suffix file_path ".hg" then ()
+        else traverse_pp_file f file_path
+      else if Filename.extension file = ".i" then f file_path
+      else ())
+    files
+
+let rec find_file filename root_dir =
+  let files = Sys.readdir root_dir in
+  Array.fold_left
+    (fun paths file ->
+      let file_path = Filename.concat root_dir file in
+      if (Unix.lstat file_path).st_kind = Unix.S_LNK then paths
+      else if Sys.is_directory file_path then
+        paths @ find_file filename file_path
+      else if Filename.basename file_path = filename then file_path :: paths
+      else paths)
+    [] files
