@@ -53,6 +53,7 @@ let rec find_file filename root_dir =
       if (Unix.lstat file_path).st_kind = Unix.S_LNK then paths
       else if Sys.is_directory file_path then
         paths @ find_file filename file_path
-      else if Filename.basename file_path = filename then file_path :: paths
+      else if Filename.basename file_path = Filename.basename filename then
+        file_path :: paths
       else paths)
     [] files
