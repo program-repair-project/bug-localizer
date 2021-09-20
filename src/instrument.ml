@@ -166,6 +166,69 @@ module DfSan = struct
       duedges
 end
 
+let preamble src_dir mode =
+  String.concat ""
+    [
+      "/* COVERAGE :: INSTRUMENTATION :: START */\n";
+      "typedef struct _IO_FILE FILE;";
+      "struct _IO_FILE *__inst_stream ;";
+      "extern FILE *fopen(char const   * __restrict  __filename , char const   \
+       * __restrict  __modes ) ;";
+      "extern int fclose(FILE *__stream ) ;";
+      "static void coverage_ctor (void) __attribute__ ((constructor));\n";
+      "static void coverage_ctor (void) {\n";
+      "  __inst_stream = fopen(\"" ^ src_dir ^ "/" ^ mode ^ ".txt"
+      ^ "\", \"a\");\n";
+      "  fprintf(__inst_stream, \"__START_NEW_EXECUTION__\\n\");\n";
+      "  fflush(__inst_stream);\n";
+      "}\n";
+      "static void coverage_dtor (void) __attribute__ ((destructor));\n";
+      "static void coverage_dtor (void) {\n";
+      "  fclose(__inst_stream);\n";
+      "}\n";
+      "/* COVERAGE :: INSTRUMENTATION :: END */\n";
+    ]
+
+let found_type = ref None
+
+let found_gvar = ref None
+
+class findTypeVisitor name =
+  object
+    inherit Cil.nopCilVisitor
+
+    method! vglob g =
+      match g with
+      | GCompTag (ci, _) ->
+          if ci.Cil.cname = name then found_type := Some ci;
+          SkipChildren
+      | _ -> SkipChildren
+  end
+
+class findGVarVisitor name =
+  object
+    inherit Cil.nopCilVisitor
+
+    method! vglob g =
+      match g with
+      | GVarDecl (vi, _) ->
+          if vi.Cil.vname = name then found_gvar := Some vi;
+          SkipChildren
+      | _ -> SkipChildren
+  end
+
+let append_constructor work_dir filename mode =
+  let read_whole_file filename =
+    let ch = open_in filename in
+    let s = really_input_string ch (in_channel_length ch) in
+    close_in ch;
+    s
+  in
+  let instr_c_code = preamble work_dir mode ^ read_whole_file filename in
+  let oc = open_out filename in
+  Printf.fprintf oc "%s" instr_c_code;
+  close_out oc
+
 module GSA = struct
   let pred_num = ref (-1)
 
@@ -216,7 +279,7 @@ module GSA = struct
     end
 
   let predicate_transform pp_file =
-    let origin_file = Filename.remove_extension pp_file ^ ".c" in
+    let origin_file = Filename.basename (Filename.basename pp_file) in
     Logging.log "Predicate transform %s (%s)" origin_file pp_file;
     let cil_opt =
       try Some (Frontc.parse pp_file ()) with Frontc.ParseError _ -> None
@@ -239,7 +302,7 @@ module GSA = struct
 
   let var_ver = ref VarVerMap.empty
 
-  class assignVisitor record_func f =
+  class assignVisitor (printf, flush, stream) f =
     let vname_of lv =
       match lv with Cil.Var vi, Cil.NoOffset -> vi.Cil.vname | _ -> ""
     in
@@ -293,38 +356,63 @@ module GSA = struct
       | _ -> "NA"
     in
     let call_record var vname ver loc =
+      let call_printf filename funcname line varname version typ var_exp =
+        let fmt =
+          match typ with
+          | "char" | "signed char" | "unsigned char" -> "%c"
+          | "unsigned int" -> "%u"
+          | "int" | "short" -> "%d"
+          | "unsigned short" -> "%hd"
+          | "long" -> "%ld"
+          | "unsigned long" -> "%lu"
+          | "float" -> "%f"
+          | "double" | "long double" -> "%lf"
+          | "string" -> "%s"
+          | "NA" -> "NA"
+          | _ -> ""
+        in
+        Cil.Call
+          ( None,
+            Cil.Lval (Cil.Var printf, Cil.NoOffset),
+            [
+              Cil.Lval (Cil.Var stream, Cil.NoOffset);
+              Cil.Const
+                (Cil.CStr
+                   (Printf.sprintf "%s,%s,%d,%s,%d" filename funcname line
+                      varname version
+                   ^ "," ^ fmt ^ "\n"));
+              var_exp;
+            ],
+            loc )
+      in
+      let call_flush loc =
+        Cil.Call
+          ( None,
+            Cil.Lval (Cil.Var flush, Cil.NoOffset),
+            [ Cil.Lval (Cil.Var stream, Cil.NoOffset) ],
+            loc )
+      in
       let fun_name = f.Cil.svar.vname in
       let t = string_of_typ (Cil.typeOfLval var) in
-      match t with
-      | "NA" ->
-          Cil.Call
-            ( None,
-              Cil.Lval (Cil.Var record_func, Cil.NoOffset),
-              [
-                Cil.Const (CStr loc.Cil.file);
-                Cil.Const (Cil.CStr fun_name);
-                Cil.Const
-                  (Cil.CInt64 (Int64.of_int loc.Cil.line, Cil.IInt, None));
-                Cil.Const (Cil.CStr vname);
-                Cil.Const (Cil.CInt64 (Int64.of_int ver, Cil.IInt, None));
-                Cil.Const (Cil.CStr t);
-              ],
-              loc )
-      | _ ->
-          Cil.Call
-            ( None,
-              Cil.Lval (Cil.Var record_func, Cil.NoOffset),
-              [
-                Cil.Const (CStr loc.Cil.file);
-                Cil.Const (Cil.CStr fun_name);
-                Cil.Const
-                  (Cil.CInt64 (Int64.of_int loc.Cil.line, Cil.IInt, None));
-                Cil.Const (Cil.CStr vname);
-                Cil.Const (Cil.CInt64 (Int64.of_int ver, Cil.IInt, None));
-                Cil.Const (Cil.CStr t);
-                Cil.Lval var;
-              ],
-              loc )
+      if
+        String.length f.svar.vname >= 13
+        && String.equal (String.sub f.svar.vname 0 13) "OOJAHOOO_PRED"
+      then
+        [
+          call_printf loc.Cil.file fun_name loc.Cil.line vname ver t
+            (Cil.Question
+               ( Cil.BinOp (Eq, Cil.Lval var, Cil.zero, Cil.intType),
+                 Cil.zero,
+                 Cil.one,
+                 Cil.intType ));
+          call_flush loc;
+        ]
+        (* printf("%s,%s,%d,%s,%d,%d\n", filename, funcname, line, varname, version, i_val) *)
+      else
+        [
+          call_printf loc.Cil.file fun_name loc.Cil.line vname ver t (Lval var);
+          call_flush loc;
+        ]
     in
     let ass2gsa result instr =
       let gogo, lv, lval, exp_vars, loc =
@@ -390,11 +478,11 @@ module GSA = struct
               call_record (Cil.Var vi, Cil.NoOffset) vname
                 (VarMap.find vname new_var_ver)
                 loc
-              :: rs)
+              @ rs)
             exp_vars []
         in
         var_ver := new_var_ver;
-        result @ instr :: pred_record :: records)
+        result @ instr :: (pred_record @ records))
       else
         let new_var_ver =
           if VarVerMap.mem lval !var_ver then
@@ -419,7 +507,7 @@ module GSA = struct
         causal_map := CausalMap.add lval_with_ver exp_vars_with_ver !causal_map;
         let lv_record = call_record lv lval ver_of_lval loc in
         var_ver := new_var_ver;
-        result @ [ instr; lv_record ]
+        result @ instr :: lv_record
     in
     object
       inherit Cil.nopCilVisitor
@@ -432,15 +520,14 @@ module GSA = struct
         | _ -> DoChildren
     end
 
-  class funAssignVisitor record_func origin_var_ver =
+  class funAssignVisitor (printf, flush, stream) origin_var_ver =
     object
       inherit Cil.nopCilVisitor
 
       method! vfunc f =
         if
           String.length f.svar.vname >= 6
-          && (String.equal (String.sub f.svar.vname 0 6) "bugzoo"
-             || String.equal (String.sub f.svar.vname 0 6) "unival")
+          && String.equal (String.sub f.svar.vname 0 6) "unival"
         then Cil.SkipChildren
         else (
           var_ver := origin_var_ver;
@@ -450,7 +537,10 @@ module GSA = struct
           List.iter
             (fun form -> var_ver := VarVerMap.add form.Cil.vname 0 !var_ver)
             f.Cil.slocals;
-          ChangeTo (Cil.visitCilFunction (new assignVisitor record_func f) f))
+          ChangeTo
+            (Cil.visitCilFunction
+               (new assignVisitor (printf, flush, stream) f)
+               f))
     end
 
   let extract_gvar globals =
@@ -461,31 +551,70 @@ module GSA = struct
         | _ -> None)
       globals
 
-  let gsa_gen pt_file =
-    let ext_removed_file = Filename.remove_extension pt_file in
-    let origin_file = ext_removed_file ^ ".c" in
-    Logging.log "GSA_Gen %s (%s)" origin_file pt_file;
-    let cil_opt =
-      try Some (Frontc.parse pt_file ()) with Frontc.ParseError _ -> None
+  let gsa_gen work_dir pt_file =
+    let origin_file_paths =
+      Utils.find_file (Filename.remove_extension pt_file ^ ".c") work_dir
     in
-    if Option.is_none cil_opt then ()
+    let ori_file_num = List.length origin_file_paths in
+    if ori_file_num = 0 then ()
     else
-      let cil = Option.get cil_opt in
-      let global_vars = extract_gvar cil.Cil.globals in
-      var_ver :=
-        List.fold_left
-          (fun vv gv -> VarVerMap.add gv 0 vv)
-          VarVerMap.empty global_vars;
-      let record_func =
-        Cil.findOrCreateFunc cil
-          ("unival_record_"
-          ^ Utils.dash2under_bar (Filename.basename ext_removed_file))
-          (Cil.TFun (Cil.intType, None, true, []))
+      let origin_file = List.hd origin_file_paths in
+      Logging.log "GSA_Gen %s (%s)" origin_file pt_file;
+      let cil_opt =
+        try Some (Frontc.parse pt_file ()) with Frontc.ParseError _ -> None
       in
-      Cil.visitCilFile (new funAssignVisitor record_func !var_ver) cil;
-      let oc_dotc = open_out (ext_removed_file ^ ".c") in
-      Cil.dumpFile !Cil.printerForMaincil oc_dotc "" cil;
-      close_out oc_dotc
+      if Option.is_none cil_opt then ()
+      else
+        let cil = Option.get cil_opt in
+        Cil.visitCilFile (new findTypeVisitor "_IO_FILE") cil;
+        Cil.visitCilFile (new findGVarVisitor "stderr") cil;
+        if Option.is_none !found_type || Option.is_none !found_gvar then ()
+        else
+          let fileptr = Cil.TPtr (Cil.TComp (Option.get !found_type, []), []) in
+          let printf =
+            Cil.findOrCreateFunc cil "fprintf"
+              (Cil.TFun
+                 ( Cil.voidType,
+                   Some
+                     [
+                       ("stream", fileptr, []); ("format", Cil.charPtrType, []);
+                     ],
+                   true,
+                   [] ))
+          in
+          let flush =
+            Cil.findOrCreateFunc cil "fflush"
+              (Cil.TFun
+                 (Cil.voidType, Some [ ("stream", fileptr, []) ], false, []))
+          in
+          let stream = Cil.makeGlobalVar "__inst_stream" fileptr in
+          cil.Cil.globals <-
+            Cil.GVarDecl (stream, Cil.locUnknown) :: cil.globals;
+          let global_vars = extract_gvar cil.Cil.globals in
+          var_ver :=
+            List.fold_left
+              (fun vv gv -> VarVerMap.add gv 0 vv)
+              VarVerMap.empty global_vars;
+          Cil.visitCilFile
+            (new funAssignVisitor (printf, flush, stream) !var_ver)
+            cil;
+          Unix.system
+            ("cp " ^ origin_file ^ " "
+            ^ Filename.remove_extension origin_file
+            ^ ".origin.c")
+          |> ignore;
+          (if
+           List.mem (Filename.basename origin_file) [ "proc_open.c"; "cast.c" ]
+          then ()
+          else
+            let oc = open_out origin_file in
+            Cil.dumpFile !Cil.printerForMaincil oc "" cil;
+            close_out oc);
+          if
+            List.mem
+              (Filename.basename origin_file)
+              [ "gzip.c"; "tif_unix.c"; "http_auth.c"; "main.c" ]
+          then append_constructor work_dir origin_file "unival"
 
   let print_cm work_dir causal_map =
     let output_file = Filename.concat work_dir "CausalMap.txt" in
@@ -502,7 +631,7 @@ module GSA = struct
 
   let run work_dir src_dir =
     Utils.traverse_pp_file
-      (fun pp_file -> pp_file |> predicate_transform |> gsa_gen)
+      (fun pp_file -> pp_file |> predicate_transform |> gsa_gen work_dir)
       src_dir;
     Utils.remove_temp_files src_dir;
     print_cm work_dir !causal_map
@@ -531,34 +660,6 @@ module Coverage = struct
         Cil.Lval (Cil.Var flush, Cil.NoOffset),
         [ Cil.Lval (Cil.Var stream, Cil.NoOffset) ],
         loc )
-
-  let found_type = ref None
-
-  let found_gvar = ref None
-
-  class findTypeVisitor name =
-    object
-      inherit Cil.nopCilVisitor
-
-      method! vglob g =
-        match g with
-        | GCompTag (ci, _) ->
-            if ci.Cil.cname = name then found_type := Some ci;
-            SkipChildren
-        | _ -> SkipChildren
-    end
-
-  class findGVarVisitor name =
-    object
-      inherit Cil.nopCilVisitor
-
-      method! vglob g =
-        match g with
-        | GVarDecl (vi, _) ->
-            if vi.Cil.vname = name then found_gvar := Some vi;
-            SkipChildren
-        | _ -> SkipChildren
-    end
 
   class instrumentVisitor printf flush stream =
     object
@@ -599,40 +700,6 @@ module Coverage = struct
         Cil.DoChildren
     end
 
-  let preamble src_dir =
-    String.concat ""
-      [
-        "/* COVERAGE :: INSTRUMENTATION :: START */\n";
-        "typedef struct _IO_FILE FILE;";
-        "struct _IO_FILE *__cov_stream ;";
-        "extern FILE *fopen(char const   * __restrict  __filename , char \
-         const   * __restrict  __modes ) ;";
-        "extern int fclose(FILE *__stream ) ;";
-        "static void coverage_ctor (void) __attribute__ ((constructor(101)));\n";
-        "static void coverage_ctor (void) {\n";
-        "  __cov_stream = fopen(\"" ^ src_dir ^ "/coverage.txt\", \"a\");\n";
-        "  fprintf(__cov_stream, \"__START_NEW_EXECUTION__\\n\");\n";
-        "  fflush(__cov_stream);\n";
-        "}\n";
-        "static void coverage_dtor (void) __attribute__ ((destructor(101)));\n";
-        "static void coverage_dtor (void) {\n";
-        "  fclose(__cov_stream);\n";
-        "}\n";
-        "/* COVERAGE :: INSTRUMENTATION :: END */\n";
-      ]
-
-  let append_constructor work_dir filename =
-    let read_whole_file filename =
-      let ch = open_in filename in
-      let s = really_input_string ch (in_channel_length ch) in
-      close_in ch;
-      s
-    in
-    let instr_c_code = preamble work_dir ^ read_whole_file filename in
-    let oc = open_out filename in
-    Printf.fprintf oc "%s" instr_c_code;
-    close_out oc
-
   let instrument work_dir pt_file =
     let origin_file_paths =
       Utils.find_file (Filename.remove_extension pt_file ^ ".c") work_dir
@@ -670,12 +737,12 @@ module Coverage = struct
               (Cil.TFun
                  (Cil.voidType, Some [ ("stream", fileptr, []) ], false, []))
           in
-          let stream = Cil.makeGlobalVar "__cov_stream" fileptr in
+          let stream = Cil.makeGlobalVar "__inst_stream" fileptr in
           cil.globals <- Cil.GVarDecl (stream, Cil.locUnknown) :: cil.globals;
           Cil.visitCilFile (new instrumentVisitor printf flush stream) cil;
           Unix.system
             ("cp " ^ origin_file ^ " "
-            ^ Filename.remove_extension pt_file
+            ^ Filename.remove_extension origin_file
             ^ ".origin.c")
           |> ignore;
           (if
@@ -689,7 +756,7 @@ module Coverage = struct
             List.mem
               (Filename.basename origin_file)
               [ "gzip.c"; "tif_unix.c"; "http_auth.c"; "main.c" ]
-          then append_constructor work_dir origin_file
+          then append_constructor work_dir origin_file "coverage"
 
   let run work_dir src_dir =
     Utils.traverse_pp_file (instrument work_dir) src_dir
