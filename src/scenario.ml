@@ -5,117 +5,6 @@ type t = {
   coverage_data : string;
 }
 
-let bugzoo_instrument_code () =
-  String.concat ""
-    [
-      "/* BUGZOO :: INSTRUMENTATION :: START */\n";
-      (if !Cmdline.gnu_source then "#define _GNU_SOURCE\n" else "");
-      "#include <stdio.h>\n";
-      "#include <stdlib.h>\n";
-      "#include <signal.h>\n";
-      "#ifdef __cplusplus\n";
-      "  extern \"C\" void __gcov_flush(void);\n";
-      "#else\n";
-      "  void __gcov_flush(void);\n";
-      "#endif\n";
-      "#ifndef BUGZOO_SIGHANDLER\n";
-      "#define BUGZOO_SIGHANDLER 1\n";
-      "static void bugzoo_sighandler(int sig){\n";
-      "  __gcov_flush();\n";
-      "  if(sig != SIGUSR1 && sig != SIGUSR2)\n";
-      "    exit(1);\n";
-      "}\n";
-      "#endif\n";
-      "#ifndef BUGZOO_CTOR\n";
-      "#define BUGZOO_CTOR 1\n";
-      "static void bugzoo_ctor (void) __attribute__ ((constructor(103)));\n";
-      "static void bugzoo_ctor (void) {\n";
-      "  struct sigaction new_action;\n";
-      "  new_action.sa_handler = bugzoo_sighandler;\n";
-      "  sigemptyset(&new_action.sa_mask);\n";
-      "  new_action.sa_flags = 0;\n";
-      "  sigaction(SIGTERM, &new_action, NULL);\n";
-      "  sigaction(SIGINT, &new_action, NULL);\n";
-      "  sigaction(SIGKILL, &new_action, NULL);\n";
-      "  sigaction(SIGSEGV, &new_action, NULL);\n";
-      "  sigaction(SIGFPE, &new_action, NULL);\n";
-      "  sigaction(SIGBUS, &new_action, NULL);\n";
-      "  sigaction(SIGILL, &new_action, NULL);\n";
-      "  sigaction(SIGABRT, &new_action, NULL);\n";
-      "  /* Use signal for SIGUSR to remove handlers */\n";
-      "  signal(SIGUSR1, bugzoo_sighandler);\n";
-      "  signal(SIGUSR2, bugzoo_sighandler);\n";
-      "}\n";
-      "#endif\n";
-      "/* BUGZOO :: INSTRUMENTATION :: END */\n";
-    ]
-
-let unival_record_code filename =
-  String.concat ""
-    [
-      "/* UNIVAL :: INSTRUMENTATION :: START */\n";
-      "#include <string.h>\n";
-      "#include <stdarg.h>\n";
-      "void unival_record_" ^ filename
-      ^ "(char *filename, char *funcname, int line, char *varname, int \
-         version, ...) {\n";
-      "  va_list ap;\n";
-      "  va_start(ap, version);\n";
-      "  char *which_type = va_arg(ap, const char*);\n";
-      "  if (strncmp(varname, \"OOJAHOOO_PRED\", 13) == 0) {\n";
-      "    int i_val = va_arg(ap, int) == 0 ? 0 : 1;\n";
-      "    printf(\"%s,%s,%d,%s,%d,%d\\n\", filename, funcname, line, varname, \
-       version, i_val);\n";
-      "  }\n";
-      "  else {\n";
-      "    if (strcmp(which_type, \"char\") == 0) {\n";
-      "      printf(\"%s,%s,%d,%s,%d,%c\\n\", filename, funcname, line, \
-       varname, version, (char) va_arg(ap, int));\n";
-      "    } else if (strcmp(which_type, \"signed char\") == 0) {\n";
-      "      printf(\"%s,%s,%d,%s,%d,%c\\n\", filename, funcname, line, \
-       varname, version, (char) va_arg(ap, int));\n";
-      "    } else if (strcmp(which_type, \"unsigned char\") == 0) {\n";
-      "      printf(\"%s,%s,%d,%s,%d,%c\\n\", filename, funcname, line, \
-       varname, version, (unsigned char) va_arg(ap, int));\n";
-      "    } else if (strcmp(which_type, \"int\") == 0) {\n";
-      "      printf(\"%s,%s,%d,%s,%d,%c\\n\", filename, funcname, line, \
-       varname, version, va_arg(ap, int));\n";
-      "    } else if (strcmp(which_type, \"unsigned int\") == 0) {\n";
-      "      printf(\"%s,%s,%d,%s,%d,%u\\n\", filename, funcname, line, \
-       varname, version, (unsigned int) va_arg(ap, int));\n";
-      "    } else if (strcmp(which_type, \"short\") == 0) {\n";
-      "      printf(\"%s,%s,%d,%s,%d,%d\\n\", filename, funcname, line, \
-       varname, version, (short) va_arg(ap, int));\n";
-      "    } else if (strcmp(which_type, \"unsigned short\") == 0) {\n";
-      "      printf(\"%s,%s,%d,%s,%d,%hd\\n\", filename, funcname, line, \
-       varname, version, (unsigned short) va_arg(ap, int));\n";
-      "    } else if (strcmp(which_type, \"long\") == 0) {\n";
-      "      printf(\"%s,%s,%d,%s,%d,%ld\\n\", filename, funcname, line, \
-       varname, version, va_arg(ap, long));\n";
-      "    } else if (strcmp(which_type, \"unsigned long\") == 0) {\n";
-      "      printf(\"%s,%s,%d,%s,%d,%lu\\n\", filename, funcname, line, \
-       varname, version, va_arg(ap, unsigned long));\n";
-      "    } else if (strcmp(which_type, \"float\") == 0) {\n";
-      "      printf(\"%s,%s,%d,%s,%d,%f\\n\", filename, funcname, line, \
-       varname, version, (float) va_arg(ap, double));\n";
-      "    } else if (strcmp(which_type, \"double\") == 0) {\n";
-      "      printf(\"%s,%s,%d,%s,%d,%lf\\n\", filename, funcname, line, \
-       varname, version, va_arg(ap, double));\n";
-      "    } else if (strcmp(which_type, \"long double\") == 0) {\n";
-      "      printf(\"%s,%s,%d,%s,%d,%lf\\n\", filename, funcname, line, \
-       varname, version, va_arg(ap, long double));\n";
-      "    } else if (strcmp(which_type, \"string\") == 0) {\n";
-      "      printf(\"%s,%s,%d,%s,%d,%s\\n\", filename, funcname, line, \
-       varname, version, va_arg(ap, const char*));\n";
-      "    } else if (strcmp(which_type, \"NA\") == 0) {\n";
-      "      printf(\"%s,%s,%d,%s,%d,NA\\n\", filename, funcname, line, \
-       varname, version);\n";
-      "    }\n";
-      "  }\n";
-      "}\n";
-      "/* UNIVAL :: INSTRUMENTATION :: END */\n";
-    ]
-
 let file_instrument filename src_dir preamble =
   let read_whole_file filename =
     let ch = open_in filename in
@@ -124,22 +13,7 @@ let file_instrument filename src_dir preamble =
     s
   in
   let c_code = read_whole_file filename in
-  let unival_instr =
-    if !Cmdline.engine = Cmdline.UniVal then
-      let bn =
-        Utils.dash2under_bar
-          (Filename.remove_extension (Filename.basename filename))
-      in
-      (* let oc = open_out (Filename.concat src_dir ("unival_" ^ bn ^ ".h")) in
-            Printf.fprintf oc
-              "extern void unival_record_%s(char *filename, char *funcname, int \
-               line, char *varname, int version, ...);\n"
-              bn;
-         close_out oc; *)
-      unival_record_code bn
-    else ""
-  in
-  let instr_c_code = preamble ^ unival_instr ^ c_code in
+  let instr_c_code = preamble ^ c_code in
   let oc = open_out filename in
   Printf.fprintf oc "%s" instr_c_code;
   close_out oc
@@ -166,11 +40,6 @@ let init ?(stdio_only = false) work_dir =
       Filename.concat (Unix.getcwd ()) work_dir
     else work_dir
   in
-  let preamble =
-    (* if stdio_only then "#include <stdio.h>" else bugzoo_instrument_code () *)
-    bugzoo_instrument_code ()
-  in
-  file_instrument_all work_dir preamble;
   {
     work_dir;
     compile_script = Filename.concat work_dir "compile.sh";
