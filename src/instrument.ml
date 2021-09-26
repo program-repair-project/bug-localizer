@@ -710,7 +710,14 @@ module Coverage = struct
       let origin_file = List.hd origin_file_paths in
       Logging.log "Instrument Coverage %s (%s)" origin_file pt_file;
       let cil_opt =
-        try Some (Frontc.parse pt_file ()) with Frontc.ParseError _ -> None
+        try Some (Frontc.parse pt_file ()) with
+        | Frontc.ParseError _ -> None
+        | Stack_overflow ->
+            Logging.log "%s" "Stack overflow";
+            None
+        | e ->
+            Logging.log "%s" (Printexc.to_string e);
+            None
       in
       if Option.is_none cil_opt then ()
       else
