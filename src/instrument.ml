@@ -701,6 +701,7 @@ module Coverage = struct
     end
 
   let instrument work_dir pt_file =
+    Cil.resetCIL ();
     let origin_file_paths =
       Utils.find_file (Filename.remove_extension pt_file ^ ".c") work_dir
     in
