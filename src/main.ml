@@ -3,6 +3,8 @@ module F = Format
 let initialize work_dir =
   let out_dir = Filename.concat work_dir !Cmdline.out_dir in
   (try Unix.mkdir out_dir 0o775 with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
+  let cov_dir = Filename.concat work_dir "coverage_data" in
+  (try Unix.mkdir cov_dir 0o775 with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
   print_endline ("Logging to " ^ out_dir);
   Logging.log_file :=
     Filename.concat out_dir "log.txt" |> open_out |> Option.some;

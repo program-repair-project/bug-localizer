@@ -181,10 +181,11 @@ module LineCoverage2 = struct
                     | None -> Some (IntSet.singleton lineno))
                   elem.coverage_set;
               linehistory =
-                ( lineno,
-                  if elem.linehistory = [] then 0
-                  else snd (List.hd elem.linehistory) + 1 )
-                :: elem.linehistory;
+                []
+                (*( lineno,
+                    if elem.linehistory = [] then 0
+                    else snd (List.hd elem.linehistory) + 1 )
+                  :: elem.linehistory;*);
             })
         (elem_of test) data
     in
@@ -207,7 +208,7 @@ module LineCoverage2 = struct
       (fun coverage test ->
         Scenario.run_test scenario.test_script test;
         let cur_cov_path =
-          Filename.concat !Cmdline.out_dir ("coverage." ^ test ^ ".txt")
+          Filename.concat "coverage_data" ("coverage." ^ test ^ ".txt")
         in
         Unix.system ("mv " ^ cov_path ^ " " ^ cur_cov_path) |> ignore;
         update_coverage cur_cov_path test coverage)
