@@ -395,8 +395,8 @@ module GSA = struct
       let fun_name = f.Cil.svar.vname in
       let t = string_of_typ (Cil.typeOfLval var) in
       if
-        String.length f.svar.vname >= 13
-        && String.equal (String.sub f.svar.vname 0 13) "OOJAHOOO_PRED"
+        String.length vname >= 13
+        && String.equal (String.sub vname 0 13) "OOJAHOOO_PRED"
       then
         [
           call_printf loc.Cil.file fun_name loc.Cil.line vname ver t
@@ -475,7 +475,9 @@ module GSA = struct
         in
         let new_var_ver =
           VarVerMap.mapi
-            (fun v ver -> if VarSet.mem v fn_exp_vars then ver + 1 else ver)
+            (fun v ver ->
+              if VarSet.mem v fn_exp_vars || VarMap.mem v exp_vars then ver + 1
+              else ver)
             !var_ver
         in
         List.iter2
@@ -551,7 +553,7 @@ module GSA = struct
         | _ -> DoChildren
     end
 
-  class funAssignVisitor (printf, flush, stream) origin_var_ver =
+  class funAssignVisitor (printf, flush, stream) =
     object
       inherit Cil.nopCilVisitor
 
@@ -561,7 +563,6 @@ module GSA = struct
           && String.equal (String.sub f.svar.vname 0 6) "unival"
         then Cil.SkipChildren
         else (
-          (* var_ver := origin_var_ver; *)
           List.iter
             (fun form ->
               var_ver :=
@@ -570,10 +571,10 @@ module GSA = struct
                   0 !var_ver)
             f.Cil.sformals;
           List.iter
-            (fun form ->
+            (fun local ->
               var_ver :=
                 VarVerMap.add
-                  (f.Cil.svar.vname ^ "_" ^ form.Cil.vname)
+                  (f.Cil.svar.vname ^ "_" ^ local.Cil.vname)
                   0 !var_ver)
             f.Cil.slocals;
           ChangeTo
@@ -634,9 +635,7 @@ module GSA = struct
             List.fold_left
               (fun vv gv -> VarVerMap.add gv 0 vv)
               VarVerMap.empty global_vars;
-          Cil.visitCilFile
-            (new funAssignVisitor (printf, flush, stream) !var_ver)
-            cil;
+          Cil.visitCilFile (new funAssignVisitor (printf, flush, stream)) cil;
           Unix.system
             ("cp " ^ origin_file ^ " "
             ^ Filename.remove_extension origin_file
@@ -668,12 +667,33 @@ module GSA = struct
     Printf.fprintf oc "%s" cm_str;
     close_out oc
 
+  let print_fc work_dir causal_map =
+    let output_file = Filename.concat work_dir "FaultCandidates.txt" in
+    let oc = open_out output_file in
+    let fc_str =
+      Utils.join
+        (CausalMap.fold
+           (fun var _ res ->
+             let var_without_ver =
+               Utils.join
+                 (List.rev (List.tl (List.rev (String.split_on_char '_' var))))
+                 "_"
+             in
+             if List.mem var_without_ver res then res
+             else var_without_ver :: res)
+           causal_map [])
+        "_1\n"
+    in
+    Printf.fprintf oc "%s" fc_str;
+    close_out oc
+
   let run work_dir src_dir =
     Utils.traverse_pp_file
       (fun pp_file -> pp_file |> predicate_transform |> gsa_gen work_dir)
       src_dir;
     Utils.remove_temp_files src_dir;
-    print_cm work_dir !causal_map
+    print_cm work_dir !causal_map;
+    print_fc work_dir !causal_map
 end
 
 module Coverage = struct
