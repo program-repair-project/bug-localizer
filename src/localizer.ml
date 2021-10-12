@@ -59,10 +59,11 @@ let spec_localizer work_dir bug_desc =
                       1.0,
                       0.0,
                       0.0,
-                      List.find
-                        (fun (x, y) -> x = line)
-                        elem.LineCoverage.linehistory
-                      |> snd ))
+                      (*List.find
+                          (fun (x, y) -> x = line)
+                          elem.LineCoverage.linehistory
+                        |> snd *)
+                      0 ))
                   lines
             in
             List.rev_append new_locs locs)
