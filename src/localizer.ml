@@ -242,37 +242,36 @@ let run work_dir =
   Logging.log "Start localization";
   let bug_desc = BugDesc.read work_dir in
   Logging.log "Bug desc: %a" BugDesc.pp bug_desc;
-  if !Cmdline.engine = Cmdline.UniVal then
-    "result_unival.txt" |> (unival_localizer work_dir bug_desc |> print)
-  else
-    match !Cmdline.engine with
-    | Cmdline.Dummy ->
-        "result_dummy.txt" |> (dummy_localizer work_dir bug_desc |> print)
-    | Cmdline.Tarantula ->
-        let locations = spec_localizer work_dir bug_desc in
-        "result_tarantula.txt"
-        |> (tarantula_localizer work_dir bug_desc locations |> print)
-    | Cmdline.Prophet ->
-        let locations = spec_localizer work_dir bug_desc in
-        "result_prophet.txt"
-        |> (prophet_localizer work_dir bug_desc locations |> print)
-    | Cmdline.Jaccard ->
-        let locations = spec_localizer work_dir bug_desc in
-        "result_jaccard.txt"
-        |> (jaccard_localizer work_dir bug_desc locations |> print)
-    | Cmdline.Ochiai ->
-        let locations = spec_localizer work_dir bug_desc in
-        "result_ochiai.txt"
-        |> (ochiai_localizer work_dir bug_desc locations |> print)
-    | Cmdline.All ->
-        let locations = spec_localizer work_dir bug_desc in
-        "result_prophet.txt"
-        |> (prophet_localizer work_dir bug_desc locations |> print);
-        "result_tarantula.txt"
-        |> (tarantula_localizer work_dir bug_desc locations |> print);
-        "result_jaccard.txt"
-        |> (jaccard_localizer work_dir bug_desc locations |> print);
-        "result_ochiai.txt"
-        |> (ochiai_localizer work_dir bug_desc locations |> print)
-    | Cmdline.Coverage -> coverage work_dir bug_desc
-    | Cmdline.UniVal -> ()
+  match !Cmdline.engine with
+  | Cmdline.Dummy ->
+      "result_dummy.txt" |> (dummy_localizer work_dir bug_desc |> print)
+  | Cmdline.Tarantula ->
+      let locations = spec_localizer work_dir bug_desc in
+      "result_tarantula.txt"
+      |> (tarantula_localizer work_dir bug_desc locations |> print)
+  | Cmdline.Prophet ->
+      let locations = spec_localizer work_dir bug_desc in
+      "result_prophet.txt"
+      |> (prophet_localizer work_dir bug_desc locations |> print)
+  | Cmdline.Jaccard ->
+      let locations = spec_localizer work_dir bug_desc in
+      "result_jaccard.txt"
+      |> (jaccard_localizer work_dir bug_desc locations |> print)
+  | Cmdline.Ochiai ->
+      let locations = spec_localizer work_dir bug_desc in
+      "result_ochiai.txt"
+      |> (ochiai_localizer work_dir bug_desc locations |> print)
+  | Cmdline.UniVal ->
+      "result_unival.txt" |> (unival_localizer work_dir bug_desc |> print)
+  | Cmdline.All ->
+      "result_unival.txt" |> (unival_localizer work_dir bug_desc |> print);
+      let locations = spec_localizer work_dir bug_desc in
+      "result_prophet.txt"
+      |> (prophet_localizer work_dir bug_desc locations |> print);
+      "result_tarantula.txt"
+      |> (tarantula_localizer work_dir bug_desc locations |> print);
+      "result_jaccard.txt"
+      |> (jaccard_localizer work_dir bug_desc locations |> print);
+      "result_ochiai.txt"
+      |> (ochiai_localizer work_dir bug_desc locations |> print)
+  | Cmdline.Coverage -> coverage work_dir bug_desc
