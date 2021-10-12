@@ -208,7 +208,8 @@ module LineCoverage2 = struct
       (fun coverage test ->
         Scenario.run_test scenario.test_script test;
         let cur_cov_path =
-          Filename.concat "coverage_data" ("coverage." ^ test ^ ".txt")
+          (*Filename.concat "coverage_data" ("coverage." ^ test ^ ".txt")*)
+          Filename.concat "coverage_data" "coverage0.txt"
         in
         Unix.system ("mv " ^ cov_path ^ " " ^ cur_cov_path) |> ignore;
         update_coverage cur_cov_path test coverage)
