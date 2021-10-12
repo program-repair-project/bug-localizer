@@ -454,15 +454,28 @@ module GSA = struct
             (fun ev _ (vs, nvs) ->
               (* for debugging *)
               (* print_endline "a"; *)
-              let ver = VarVerMap.find ev !var_ver in
-              ( (ev ^ "_" ^ string_of_int ver) :: vs,
-                (ev ^ "_" ^ string_of_int (ver + 1)) :: nvs ))
+              let fn_ev = f.Cil.svar.vname ^ "_" ^ ev in
+              if VarVerMap.mem fn_ev !var_ver then
+                let ver = VarVerMap.find fn_ev !var_ver in
+                ( (fn_ev ^ "_" ^ string_of_int ver) :: vs,
+                  (fn_ev ^ "_" ^ string_of_int (ver + 1)) :: nvs )
+              else if VarVerMap.mem ev !var_ver then
+                let ver = VarVerMap.find ev !var_ver in
+                ( (ev ^ "_" ^ string_of_int ver) :: vs,
+                  (ev ^ "_" ^ string_of_int (ver + 1)) :: nvs )
+              else raise (Failure "Not_Found_Var"))
             exp_vars ([], [])
         in
-        causal_map := CausalMap.add lval exp_vars_with_ver !causal_map;
+        let fn_lval = f.Cil.svar.vname ^ "_" ^ lval in
+        causal_map := CausalMap.add fn_lval exp_vars_with_ver !causal_map;
+        let fn_exp_vars =
+          VarMap.fold
+            (fun v _ fevs -> VarSet.add (f.Cil.svar.vname ^ "_" ^ v) fevs)
+            exp_vars VarSet.empty
+        in
         let new_var_ver =
           VarVerMap.mapi
-            (fun v ver -> if VarMap.mem v exp_vars then ver + 1 else ver)
+            (fun v ver -> if VarSet.mem v fn_exp_vars then ver + 1 else ver)
             !var_ver
         in
         List.iter2
@@ -475,8 +488,11 @@ module GSA = struct
             (fun vname vi rs ->
               (* for debugging *)
               (* print_endline "b"; *)
+              let fn_vname = f.Cil.svar.vname ^ "_" ^ vname in
               call_record (Cil.Var vi, Cil.NoOffset) vname
-                (VarMap.find vname new_var_ver)
+                (if VarMap.mem fn_vname new_var_ver then
+                 VarMap.find fn_vname new_var_ver
+                else VarMap.find vname new_var_ver)
                 loc
               @ rs)
             exp_vars []
@@ -484,26 +500,41 @@ module GSA = struct
         var_ver := new_var_ver;
         result @ instr :: (pred_record @ records))
       else
+        let fn_lval = f.Cil.svar.vname ^ "_" ^ lval in
         let new_var_ver =
-          if VarVerMap.mem lval !var_ver then
+          if VarVerMap.mem fn_lval !var_ver then
+            VarVerMap.update fn_lval
+              (fun ver -> Some (Option.get ver + 1))
+              !var_ver
+          else if VarVerMap.mem lval !var_ver then
             VarVerMap.update lval
               (fun ver -> Some (Option.get ver + 1))
               !var_ver
-          else VarVerMap.add lval 0 !var_ver
+          else VarVerMap.add fn_lval 0 !var_ver
         in
         let exp_vars_with_ver =
           VarMap.fold
             (fun ev _ vs ->
               (* for debugging *)
               (* print_endline ev; *)
-              let ver = VarVerMap.find ev !var_ver in
-              (ev ^ "_" ^ string_of_int ver) :: vs)
+              let fn_ev = f.Cil.svar.vname ^ "_" ^ ev in
+              if VarVerMap.mem fn_ev !var_ver then
+                let ver = VarVerMap.find fn_ev !var_ver in
+                (fn_ev ^ "_" ^ string_of_int ver) :: vs
+              else if VarVerMap.mem ev !var_ver then
+                let ver = VarVerMap.find ev !var_ver in
+                (ev ^ "_" ^ string_of_int ver) :: vs
+              else raise (Failure "Not_Found_Var"))
             exp_vars []
         in
         (* for debugging *)
         (* print_endline "d"; *)
-        let ver_of_lval = VarVerMap.find lval new_var_ver in
-        let lval_with_ver = lval ^ "_" ^ string_of_int ver_of_lval in
+        let final_lval, ver_of_lval =
+          if VarVerMap.mem fn_lval new_var_ver then
+            (fn_lval, VarVerMap.find fn_lval new_var_ver)
+          else (lval, VarVerMap.find lval new_var_ver)
+        in
+        let lval_with_ver = final_lval ^ "_" ^ string_of_int ver_of_lval in
         causal_map := CausalMap.add lval_with_ver exp_vars_with_ver !causal_map;
         let lv_record = call_record lv lval ver_of_lval loc in
         var_ver := new_var_ver;
@@ -530,12 +561,20 @@ module GSA = struct
           && String.equal (String.sub f.svar.vname 0 6) "unival"
         then Cil.SkipChildren
         else (
-          var_ver := origin_var_ver;
+          (* var_ver := origin_var_ver; *)
           List.iter
-            (fun form -> var_ver := VarVerMap.add form.Cil.vname 0 !var_ver)
+            (fun form ->
+              var_ver :=
+                VarVerMap.add
+                  (f.Cil.svar.vname ^ "_" ^ form.Cil.vname)
+                  0 !var_ver)
             f.Cil.sformals;
           List.iter
-            (fun form -> var_ver := VarVerMap.add form.Cil.vname 0 !var_ver)
+            (fun form ->
+              var_ver :=
+                VarVerMap.add
+                  (f.Cil.svar.vname ^ "_" ^ form.Cil.vname)
+                  0 !var_ver)
             f.Cil.slocals;
           ChangeTo
             (Cil.visitCilFunction
