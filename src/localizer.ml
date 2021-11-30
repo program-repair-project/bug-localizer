@@ -7,7 +7,23 @@ module BugLocation = struct
   let pp fmt (l, score_neg, score_pos, score, score_time) =
     F.fprintf fmt "%s:%d\t%f %f %f %d" l.Cil.file l.Cil.line score_neg score_pos
       score score_time
+
+  let pp_cov fmt (l, score_neg, score_pos, score, score_time) =
+    F.fprintf fmt "%s:%d,%d,%d" l.Cil.file l.Cil.line (int_of_float score_pos)
+      (int_of_float score_neg)
 end
+
+let print_coverage locations resultname =
+  let oc2 = Filename.concat !Cmdline.out_dir resultname |> open_out in
+  let fmt2 = F.formatter_of_out_channel oc2 in
+  List.iter (fun l -> F.fprintf fmt2 "%a\n" BugLocation.pp_cov l) locations;
+  close_out oc2
+
+let print locations resultname =
+  let oc = Filename.concat !Cmdline.out_dir resultname |> open_out in
+  let fmt = F.formatter_of_out_channel oc in
+  List.iter (fun l -> F.fprintf fmt "%a\n" BugLocation.pp l) locations;
+  close_out oc
 
 let copy_src () =
   Unix.create_process "cp"
@@ -194,6 +210,170 @@ let jaccard_localizer work_dir bug_desc locations =
       if s23 > s13 then 1 else if s23 = s13 then 0 else -1)
     jaccard_loc
 
+let diff_localizer work_dir bug_desc =
+  Unix.chdir "/experiment/src";
+  Unix.create_process "make" [| "make"; "clean" |] Unix.stdin Unix.stdout
+    Unix.stderr
+  |> ignore;
+  (match Unix.wait () |> snd with
+  | Unix.WEXITED 0 -> ()
+  | Unix.WEXITED n ->
+      failwith ("Error " ^ string_of_int n ^ ": make clean failed test")
+  | _ -> failwith "make clean failed");
+  Unix.create_process "make" [| "make"; "distclean" |] Unix.stdin Unix.stdout
+    Unix.stderr
+  |> ignore;
+  (match Unix.wait () |> snd with
+  | Unix.WEXITED 0 -> ()
+  | Unix.WEXITED n ->
+      failwith ("Error " ^ string_of_int n ^ ": make distclean failed")
+  | _ -> failwith "make distclean failed");
+
+  Unix.chdir "/experiment";
+  Unix.create_process "cp"
+    [| "cp"; "-rf"; "src"; "bic" |]
+    Unix.stdin Unix.stdout Unix.stderr
+  |> ignore;
+  (match Unix.wait () |> snd with
+  | Unix.WEXITED 0 -> ()
+  | Unix.WEXITED n -> failwith ("Error " ^ string_of_int n ^ ": cp failed")
+  | _ -> failwith "cp failed");
+
+  Unix.chdir "/experiment/src";
+  Unix.create_process "./configure" [| "./configure" |] Unix.stdin Unix.stdout
+    Unix.stderr
+  |> ignore;
+  (match Unix.wait () |> snd with
+  | Unix.WEXITED 0 -> ()
+  | Unix.WEXITED n ->
+      failwith ("Error " ^ string_of_int n ^ ": configure failed")
+  | _ -> failwith "configure failed");
+
+  Unix.chdir "/experiment";
+  let bic_locations = spec_localizer work_dir bug_desc in
+  (*let bic_result = tarantula_localizer work_dir bug_desc locations in*)
+  Unix.chdir "/experiment";
+  Unix.create_process "./parent_checkout.sh"
+    [| "./parent_checkout.sh" |]
+    Unix.stdin Unix.stdout Unix.stderr
+  |> ignore;
+  (match Unix.wait () |> snd with
+  | Unix.WEXITED 0 -> ()
+  | Unix.WEXITED n ->
+      failwith ("Error " ^ string_of_int n ^ ": parent script failed test2")
+  | _ -> failwith "parent script failed");
+
+  (*let _ = failwith "abc" in*)
+  (*Unix.create_process "./line_matching.py"
+      [| "./line_matching.py"; "./bic/"; "./src/" |]
+      Unix.stdin Unix.stdout Unix.stderr
+    |> ignore;
+    (match Unix.wait () |> snd with
+    | Unix.WEXITED 0 -> ()
+    | Unix.WEXITED n -> failwith ("Error " ^ string_of_int n ^ ": diff failed")
+    | _ -> failwith "diff failed");*)
+  Unix.chdir "/experiment/src";
+  Unix.create_process "./configure" [| "./configure" |] Unix.stdin Unix.stdout
+    Unix.stderr
+  |> ignore;
+  (match Unix.wait () |> snd with
+  | Unix.WEXITED 0 -> ()
+  | Unix.WEXITED n ->
+      failwith ("Error " ^ string_of_int n ^ ": configure failed")
+  | _ -> failwith "configure failed");
+
+  Unix.chdir "/experiment";
+  let parent_locations = spec_localizer work_dir bug_desc in
+
+  (*let parent_result = tarantula_localizer work_dir bug_desc locations in*)
+
+  (*Unix.chdir "/experiment/src";
+    Unix.create_process "make"
+      [| "make"; "clean" |]
+      Unix.stdin Unix.stdout Unix.stderr
+    |> ignore;
+    (match Unix.wait () |> snd with
+    | Unix.WEXITED 0 -> ()
+    | Unix.WEXITED n -> failwith ("Error " ^ string_of_int n ^ ": make clean failed")
+    | _ -> failwith "make clean failed");
+    Unix.create_process "make"
+      [| "make"; "distclean" |]
+      Unix.stdin Unix.stdout Unix.stderr
+    |> ignore;
+    (match Unix.wait () |> snd with
+    | Unix.WEXITED 0 -> ()
+    | Unix.WEXITED n -> failwith ("Error " ^ string_of_int n ^ ": make distclean failed")
+    | _ -> failwith "make distclean failed");*)
+  Unix.chdir "/experiment";
+  let open Yojson in
+  let open Yojson.Basic.Util in
+  let json = Yojson.Basic.from_file "line_matching.json" in
+  let changed_file = json |> member "changed_files" |> to_assoc in
+  let unchanged_file =
+    json |> member "unchanged_files" |> to_list
+    |> List.map (fun a -> a |> to_string)
+  in
+  let table = Hashtbl.create 99999 in
+  let table_parent = Hashtbl.create 99999 in
+  List.iter
+    (fun (l, s1, s2, s3, s4) ->
+      match Hashtbl.find_opt table l with
+      | Some (new_s1, new_s2, new_s3, new_s4) ->
+          Hashtbl.replace table l
+            (s1 +. new_s1, s2 +. new_s2, s3 +. new_s3, s4 + new_s4)
+      | _ -> Hashtbl.add table l (s1, s2, s3, s4))
+    bic_locations;
+  "coverage_bic.txt"
+  |> (List.map
+        (fun (l, (s1, s2, s3, s4)) -> (l, s1, s2, s3, s4))
+        (List.of_seq (Hashtbl.to_seq table))
+     |> print_coverage);
+  List.iter
+    (fun (l, s1, s2, s3, s4) ->
+      match Hashtbl.find_opt table_parent l with
+      | Some (new_s1, new_s2, new_s3, new_s4) ->
+          Hashtbl.replace table_parent l
+            (s1 +. new_s1, s2 +. new_s2, s3 +. new_s3, s4 + new_s4)
+      | _ -> Hashtbl.add table_parent l (s1, s2, s3, s4))
+    parent_locations;
+  "coverage_parent.txt"
+  |> (List.map
+        (fun (l, (s1, s2, s3, s4)) -> (l, s1, s2, s3, s4))
+        (List.of_seq (Hashtbl.to_seq table_parent))
+     |> print_coverage);
+  List.iter
+    (fun (l, s1, s2, s3, s4) ->
+      let new_l =
+        if List.mem l.Cil.file unchanged_file then Some l
+        else
+          match List.assoc_opt l.Cil.file changed_file with
+          | Some v
+            when l.Cil.line - 1 < List.length (v |> to_list)
+                 && List.nth (v |> to_list) (l.Cil.line - 1) |> to_int <> 0 ->
+              Some
+                {
+                  Cil.file = l.Cil.file;
+                  line = List.nth (v |> to_list) (l.Cil.line - 1) |> to_int;
+                  byte = 0;
+                }
+          | _ -> None
+      in
+      if new_l <> None then
+        let l = Option.get new_l in
+        match Hashtbl.find_opt table l with
+        | Some (new_s1, new_s2, new_s3, new_s4) ->
+            Hashtbl.replace table l
+              (new_s1, s1 +. s2 +. new_s2, s3 +. new_s3, s4 + new_s4)
+        | _ -> Hashtbl.add table l (0., s1 +. s2, s3, s4))
+    parent_locations;
+  let result =
+    List.map
+      (fun (l, (s1, s2, s3, s4)) -> (l, s1, s2, s3, s4))
+      (List.of_seq (Hashtbl.to_seq table))
+  in
+  print_coverage result "coverage_diff.txt";
+  result
+
 let unival_compile scenario bug_desc =
   Unix.chdir scenario.Scenario.work_dir;
   if not !Cmdline.skip_compile then Logging.log "Start compile";
@@ -224,12 +404,6 @@ let unival_localizer work_dir bug_desc =
   unival_run_test work_dir scenario bug_desc;
   failwith "Not implemented"
 
-let print locations resultname =
-  let oc = Filename.concat !Cmdline.out_dir resultname |> open_out in
-  let fmt = F.formatter_of_out_channel oc in
-  List.iter (fun l -> F.fprintf fmt "%a\n" BugLocation.pp l) locations;
-  close_out oc
-
 let coverage work_dir bug_desc =
   let scenario = Scenario.init ~stdio_only:true work_dir in
   Unix.chdir scenario.Scenario.work_dir;
@@ -242,30 +416,31 @@ let run work_dir =
   Logging.log "Start localization";
   let bug_desc = BugDesc.read work_dir in
   Logging.log "Bug desc: %a" BugDesc.pp bug_desc;
+  let localizer = if !Cmdline.bic then diff_localizer else spec_localizer in
   match !Cmdline.engine with
   | Cmdline.Dummy ->
       "result_dummy.txt" |> (dummy_localizer work_dir bug_desc |> print)
   | Cmdline.Tarantula ->
-      let locations = spec_localizer work_dir bug_desc in
+      let locations = localizer work_dir bug_desc in
       "result_tarantula.txt"
       |> (tarantula_localizer work_dir bug_desc locations |> print)
   | Cmdline.Prophet ->
-      let locations = spec_localizer work_dir bug_desc in
+      let locations = localizer work_dir bug_desc in
       "result_prophet.txt"
       |> (prophet_localizer work_dir bug_desc locations |> print)
   | Cmdline.Jaccard ->
-      let locations = spec_localizer work_dir bug_desc in
+      let locations = localizer work_dir bug_desc in
       "result_jaccard.txt"
       |> (jaccard_localizer work_dir bug_desc locations |> print)
   | Cmdline.Ochiai ->
-      let locations = spec_localizer work_dir bug_desc in
+      let locations = localizer work_dir bug_desc in
       "result_ochiai.txt"
       |> (ochiai_localizer work_dir bug_desc locations |> print)
   | Cmdline.UniVal ->
       "result_unival.txt" |> (unival_localizer work_dir bug_desc |> print)
   | Cmdline.All ->
-      "result_unival.txt" |> (unival_localizer work_dir bug_desc |> print);
-      let locations = spec_localizer work_dir bug_desc in
+      (*"result_unival.txt" |> (unival_localizer work_dir bug_desc |> print);*)
+      let locations = localizer work_dir bug_desc in
       "result_prophet.txt"
       |> (prophet_localizer work_dir bug_desc locations |> print);
       "result_tarantula.txt"

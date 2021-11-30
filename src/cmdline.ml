@@ -49,6 +49,8 @@ let blacklist = ref []
 
 let gnu_source = ref false
 
+let bic = ref false
+
 let options =
   [
     ("-outdir", Arg.Set_string out_dir, "Output directory");
@@ -67,6 +69,7 @@ let options =
       Arg.Set gnu_source,
       "Add #define _GNU_SOURCE when instrumentation for some programs (e.g., \
        gimp)" );
+    ("-bic", Arg.Set bic, "Select whether using bic or not");
   ]
 
 let parse_arg x =
