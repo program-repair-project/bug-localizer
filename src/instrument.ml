@@ -812,7 +812,7 @@ module Coverage = struct
         if
           List.mem
             (Filename.basename origin_file)
-            [ "gzip.c"; "tif_unix.c"; "http_auth.c"; "main.c" ]
+            [ "gzip.c"; "tif_unix.c"; "http_auth.c"; "main.c"; "version.c" ]
         then append_constructor work_dir origin_file "coverage"
 
   let run work_dir src_dir =
