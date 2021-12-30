@@ -9,8 +9,9 @@ module BugLocation = struct
       score score_time
 
   let pp_cov fmt (l, score_neg, score_pos, score, score_time) =
-    F.fprintf fmt "%s:%d,%d,%d" l.Cil.file l.Cil.line (int_of_float score_pos)
-      (int_of_float score_neg)
+    F.fprintf fmt "%s:%d,%d,%d"
+      (l.Cil.file |> Filename.basename)
+      l.Cil.line (int_of_float score_pos) (int_of_float score_neg)
 end
 
 let print_coverage locations resultname =
