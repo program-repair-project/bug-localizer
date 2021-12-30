@@ -9,9 +9,9 @@ module BugLocation = struct
       score score_time
 
   let pp_cov fmt (l, score_neg, score_pos, score, score_time) =
-    F.fprintf fmt "%s:%d,%d,%d"
+    F.fprintf fmt "%s:%d,%d,%d,%f"
       (l.Cil.file |> Filename.basename)
-      l.Cil.line (int_of_float score_pos) (int_of_float score_neg)
+      l.Cil.line (int_of_float score_pos) (int_of_float score_neg) score
 end
 
 let print_coverage locations resultname =
@@ -54,7 +54,7 @@ let dummy_localizer work_dir bug_desc =
         elem.LineCoverage.coverage locs)
     [] coverage
 
-let spec_localizer work_dir bug_desc =
+let spec_localizer work_dir bug_desc _ =
   let coverage = LineCoverage.run work_dir bug_desc in
   Logging.log "Coverage: %a" LineCoverage.pp coverage;
   copy_src ();
@@ -211,7 +211,7 @@ let jaccard_localizer work_dir bug_desc locations =
       if s23 > s13 then 1 else if s23 = s13 then 0 else -1)
     jaccard_loc
 
-let diff_localizer work_dir bug_desc =
+let diff_localizer work_dir bug_desc localizer_list =
   Unix.chdir "/experiment/src";
   Unix.create_process "make" [| "make"; "clean" |] Unix.stdin Unix.stdout
     Unix.stderr
@@ -251,7 +251,7 @@ let diff_localizer work_dir bug_desc =
   | _ -> failwith "configure failed");
 
   Unix.chdir "/experiment";
-  let bic_locations = spec_localizer work_dir bug_desc in
+  let bic_locations = spec_localizer work_dir bug_desc () in
   (*let bic_result = tarantula_localizer work_dir bug_desc locations in*)
   Unix.chdir "/experiment";
   Unix.create_process "./parent_checkout.sh"
@@ -284,7 +284,7 @@ let diff_localizer work_dir bug_desc =
   | _ -> failwith "configure failed");
 
   Unix.chdir "/experiment";
-  let parent_locations = spec_localizer work_dir bug_desc in
+  let parent_locations = spec_localizer work_dir bug_desc () in
 
   (*let parent_result = tarantula_localizer work_dir bug_desc locations in*)
 
@@ -324,11 +324,15 @@ let diff_localizer work_dir bug_desc =
             (s1 +. new_s1, s2 +. new_s2, s3 +. new_s3, s4 + new_s4)
       | _ -> Hashtbl.add table l (s1, s2, s3, s4))
     bic_locations;
-  "coverage_bic.txt"
-  |> (List.map
-        (fun (l, (s1, s2, s3, s4)) -> (l, s1, s2, s3, s4))
-        (List.of_seq (Hashtbl.to_seq table))
-     |> print_coverage);
+  List.iter
+    (fun localizer ->
+      "coverage_bic.txt"
+      |> (List.map
+            (fun (l, (s1, s2, s3, s4)) -> (l, s1, s2, s3, s4))
+            (List.of_seq (Hashtbl.to_seq table))
+         |> localizer work_dir bug_desc
+         |> print_coverage))
+    localizer_list;
   List.iter
     (fun (l, s1, s2, s3, s4) ->
       match Hashtbl.find_opt table_parent l with
@@ -422,26 +426,34 @@ let run work_dir =
   | Cmdline.Dummy ->
       "result_dummy.txt" |> (dummy_localizer work_dir bug_desc |> print)
   | Cmdline.Tarantula ->
-      let locations = localizer work_dir bug_desc in
+      let locations = localizer work_dir bug_desc [ tarantula_localizer ] in
       "result_tarantula.txt"
       |> (tarantula_localizer work_dir bug_desc locations |> print)
   | Cmdline.Prophet ->
-      let locations = localizer work_dir bug_desc in
+      let locations = localizer work_dir bug_desc [ prophet_localizer ] in
       "result_prophet.txt"
       |> (prophet_localizer work_dir bug_desc locations |> print)
   | Cmdline.Jaccard ->
-      let locations = localizer work_dir bug_desc in
+      let locations = localizer work_dir bug_desc [ jaccard_localizer ] in
       "result_jaccard.txt"
       |> (jaccard_localizer work_dir bug_desc locations |> print)
   | Cmdline.Ochiai ->
-      let locations = localizer work_dir bug_desc in
+      let locations = localizer work_dir bug_desc [ ochiai_localizer ] in
       "result_ochiai.txt"
       |> (ochiai_localizer work_dir bug_desc locations |> print)
   | Cmdline.UniVal ->
       "result_unival.txt" |> (unival_localizer work_dir bug_desc |> print)
   | Cmdline.All ->
       (*"result_unival.txt" |> (unival_localizer work_dir bug_desc |> print);*)
-      let locations = localizer work_dir bug_desc in
+      let locations =
+        localizer work_dir bug_desc
+          [
+            prophet_localizer;
+            tarantula_localizer;
+            jaccard_localizer;
+            ochiai_localizer;
+          ]
+      in
       "result_prophet.txt"
       |> (prophet_localizer work_dir bug_desc locations |> print);
       "result_tarantula.txt"
