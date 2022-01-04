@@ -206,6 +206,10 @@ module LineCoverage2 = struct
     let cov_path = Filename.concat scenario.work_dir "coverage.txt" in
     List.fold_left
       (fun coverage test ->
+        let oc = open_out_gen [ Open_append; Open_creat ] 0o775 cov_path in
+        Printf.fprintf oc "*** new execution ***,%s,%d" test
+          (if String.get test 0 = 'p' then 0 else 1);
+        close_out oc;
         Scenario.run_test scenario.test_script test;
         let cur_cov_path =
           (* Filename.concat "coverage_data" ("coverage." ^ test ^ ".txt") *)

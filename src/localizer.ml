@@ -385,10 +385,17 @@ let unival_compile scenario bug_desc =
   Scenario.compile scenario bug_desc.BugDesc.compiler_type;
   Unix.chdir scenario.Scenario.work_dir
 
-let unival_run_test work_dir scenario bug_desc =
+let unival_run_test scenario bug_desc =
   Logging.log "Start test";
+  let text_file_name =
+    Filename.concat scenario.Scenario.work_dir "unival.txt"
+  in
   List.iter
     (fun test ->
+      let oc = open_out_gen [ Open_append; Open_creat ] 0o775 text_file_name in
+      Printf.fprintf oc "*** new execution ***,%s,%d\n" test
+        (if String.get test 0 = 'p' then 0 else 1);
+      close_out oc;
       Unix.create_process scenario.Scenario.test_script
         [| scenario.Scenario.test_script; test |]
         Unix.stdin Unix.stdout
@@ -398,7 +405,8 @@ let unival_run_test work_dir scenario bug_desc =
            0o775) *)
         Unix.stderr
       |> ignore;
-      Unix.wait () |> ignore)
+      Unix.wait () |> ignore;
+      Logging.log "End test %s" test)
     bug_desc.BugDesc.test_cases
 
 let unival_localizer work_dir bug_desc =
@@ -406,7 +414,7 @@ let unival_localizer work_dir bug_desc =
   unival_compile scenario bug_desc;
   Instrument.run scenario.work_dir;
   unival_compile scenario bug_desc;
-  unival_run_test work_dir scenario bug_desc;
+  unival_run_test scenario bug_desc;
   failwith "Not implemented"
 
 let coverage work_dir bug_desc =

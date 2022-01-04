@@ -179,8 +179,6 @@ let preamble src_dir mode =
       "static void coverage_ctor (void) {\n";
       "  __inst_stream = fopen(\"" ^ src_dir ^ "/" ^ mode ^ ".txt"
       ^ "\", \"a\");\n";
-      "  fprintf(__inst_stream, \"__START_NEW_EXECUTION__\\n\");\n";
-      "  fflush(__inst_stream);\n";
       "}\n";
       "static void coverage_dtor (void) __attribute__ ((destructor));\n";
       "static void coverage_dtor (void) {\n";
