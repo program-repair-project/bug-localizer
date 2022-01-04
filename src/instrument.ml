@@ -224,10 +224,17 @@ let append_constructor work_dir filename mode =
     close_in ch;
     s
   in
-  let instr_c_code = preamble work_dir mode ^ read_whole_file filename in
-  let oc = open_out filename in
-  Printf.fprintf oc "%s" instr_c_code;
-  close_out oc
+  let code = read_whole_file filename in
+  if
+    String.length code > 42
+    && String.equal (String.sub code 0 42)
+         "/* COVERAGE :: INSTRUMENTATION :: START */"
+  then ()
+  else
+    let instr_c_code = preamble work_dir mode ^ read_whole_file filename in
+    let oc = open_out filename in
+    Printf.fprintf oc "%s" instr_c_code;
+    close_out oc
 
 module GSA = struct
   let pred_num = ref (-1)
@@ -248,12 +255,13 @@ module GSA = struct
                 then_branch,
                 else_branch,
                 loc );
-          result
-          @ [
-              Cil.mkStmtOneInstr
-                (Cil.Set ((Cil.Var vi, Cil.NoOffset), pred, loc));
-              stmt;
-            ]
+          let assign =
+            Cil.mkStmtOneInstr (Cil.Set ((Cil.Var vi, Cil.NoOffset), pred, loc))
+          in
+          let temp = assign.skind in
+          assign.skind <- stmt.skind;
+          stmt.skind <- temp;
+          result @ [ stmt; assign ]
       | _ -> result @ [ stmt ]
     in
     object
@@ -500,7 +508,7 @@ module GSA = struct
             exp_vars []
         in
         var_ver := new_var_ver;
-        result @ instr :: (pred_record @ records))
+        result @ (instr :: (pred_record @ records)))
       else
         let fn_lval = f.Cil.svar.vname ^ "_" ^ lval in
         let new_var_ver =
@@ -540,7 +548,7 @@ module GSA = struct
         causal_map := CausalMap.add lval_with_ver exp_vars_with_ver !causal_map;
         let lv_record = call_record lv lval ver_of_lval loc in
         var_ver := new_var_ver;
-        result @ instr :: lv_record
+        result @ (instr :: lv_record)
     in
     object
       inherit Cil.nopCilVisitor
@@ -592,12 +600,14 @@ module GSA = struct
       globals
 
   let gsa_gen work_dir pt_file =
+    let src_dir = Filename.concat work_dir "src" in
     let origin_file_paths =
-      Utils.find_file (Filename.remove_extension pt_file ^ ".c") work_dir
+      Utils.find_file (Filename.remove_extension pt_file ^ ".c") src_dir
     in
     let ori_file_num = List.length origin_file_paths in
     if ori_file_num = 0 then ()
-    else
+    else (
+      assert (ori_file_num = 1);
       let origin_file = List.hd origin_file_paths in
       Logging.log "GSA_Gen %s (%s)" origin_file pt_file;
       let cil_opt =
@@ -652,7 +662,7 @@ module GSA = struct
             List.mem
               (Filename.basename origin_file)
               [ "gzip.c"; "tif_unix.c"; "http_auth.c"; "main.c" ]
-          then append_constructor work_dir origin_file "unival"
+          then append_constructor work_dir origin_file "unival")
 
   let print_cm work_dir causal_map =
     let output_file = Filename.concat work_dir "CausalMap.txt" in
