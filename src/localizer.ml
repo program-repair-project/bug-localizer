@@ -415,7 +415,33 @@ let unival_localizer work_dir bug_desc =
   Instrument.run scenario.work_dir;
   unival_compile scenario bug_desc;
   unival_run_test scenario bug_desc;
-  failwith "Not implemented"
+  Unix.create_process "mv"
+    [|
+      "mv";
+      Filename.concat scenario.work_dir "output.txt";
+      Filename.concat scenario.work_dir "localizer-out/";
+    |]
+    Unix.stdin Unix.stdout Unix.stderr
+  |> ignore;
+  Unix.wait () |> ignore;
+  Unix.create_process "mv"
+    [|
+      "mv";
+      Filename.concat scenario.work_dir "CausalMap.txt";
+      Filename.concat scenario.work_dir "localizer-out/";
+    |]
+    Unix.stdin Unix.stdout Unix.stderr
+  |> ignore;
+  Unix.wait () |> ignore;
+  Unix.create_process "mv"
+    [|
+      "mv";
+      Filename.concat scenario.work_dir "FaultCandidates.txt";
+      Filename.concat scenario.work_dir "localizer-out/";
+    |]
+    Unix.stdin Unix.stdout Unix.stderr
+  |> ignore;
+  Unix.wait () |> ignore
 
 let coverage work_dir bug_desc =
   let scenario = Scenario.init ~stdio_only:true work_dir in
@@ -449,8 +475,7 @@ let run work_dir =
       let locations = localizer work_dir bug_desc [ ochiai_localizer ] in
       "result_ochiai.txt"
       |> (ochiai_localizer work_dir bug_desc locations |> print)
-  | Cmdline.UniVal ->
-      "result_unival.txt" |> (unival_localizer work_dir bug_desc |> print)
+  | Cmdline.UniVal -> unival_localizer work_dir bug_desc
   | Cmdline.All ->
       (*"result_unival.txt" |> (unival_localizer work_dir bug_desc |> print);*)
       let locations =
