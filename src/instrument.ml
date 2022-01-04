@@ -660,7 +660,7 @@ module GSA = struct
             List.mem
               (Filename.basename origin_file)
               [ "gzip.c"; "tif_unix.c"; "http_auth.c"; "main.c" ]
-          then append_constructor work_dir origin_file "unival")
+          then append_constructor work_dir origin_file "output")
 
   let print_cm work_dir causal_map =
     let output_file = Filename.concat work_dir "CausalMap.txt" in

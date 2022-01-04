@@ -388,7 +388,7 @@ let unival_compile scenario bug_desc =
 let unival_run_test scenario bug_desc =
   Logging.log "Start test";
   let text_file_name =
-    Filename.concat scenario.Scenario.work_dir "unival.txt"
+    Filename.concat scenario.Scenario.work_dir "output.txt"
   in
   List.iter
     (fun test ->
