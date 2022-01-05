@@ -80,7 +80,7 @@ module LineCoverage = struct
       (fun file lines -> F.fprintf fmt "%s: %a\n" file pp_lines lines)
       cov
 
-  let pp_elem fmt { test; coverage; linehistory } =
+  let pp_elem fmt { test; coverage; _ } =
     F.fprintf fmt "test: %s\ncoverage:\n%a\n" test pp_coverage coverage
 
   let pp fmt cov = List.iter (fun elem -> pp_elem fmt elem) cov

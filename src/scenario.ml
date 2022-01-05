@@ -5,7 +5,7 @@ type t = {
   coverage_data : string;
 }
 
-let file_instrument filename src_dir preamble =
+let file_instrument filename preamble =
   let read_whole_file filename =
     let ch = open_in filename in
     let s = really_input_string ch (in_channel_length ch) in
@@ -27,8 +27,7 @@ let file_instrument_all work_dir preamble =
         if (Unix.lstat file_path).st_kind = Unix.S_LNK then ()
         else if List.mem file !Cmdline.blacklist then ()
         else if Sys.is_directory file_path then traverse_file f file_path
-        else if Filename.extension file = ".c" then
-          f file_path (Filename.concat work_dir "src") preamble
+        else if Filename.extension file = ".c" then f file_path preamble
         else ())
       files
   in

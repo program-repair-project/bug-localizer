@@ -341,7 +341,7 @@ module GSA = struct
       VarMap.remove "" result
     in
     let is_pred vname =
-      let pred_prefix = Str.regexp "OOJAHOOO_PRED_\[0-9\]\+" in
+      let pred_prefix = Str.regexp "OOJAHOOO_PRED_\\[0-9\\]\\+" in
       Str.string_match pred_prefix vname 0
     in
     let rec string_of_typ = function
