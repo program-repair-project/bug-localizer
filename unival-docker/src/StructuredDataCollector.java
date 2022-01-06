@@ -139,32 +139,47 @@ public class StructuredDataCollector {
             reader.close();
 
             BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream("newoutput.txt")));
+            BufferedWriter writer2 = new BufferedWriter(
+                    new OutputStreamWriter(new FileOutputStream("newoutput.txt.full")));
 
             for (String s : variableVersionValueArrayMap.keySet()) {
-                if (!Pattern.matches("^[a-zA-Z_]\\w*$", s)) {
-                    continue;
-                }
-
                 ArrayList<String> list = variableVersionValueArrayMap.get(s);
 
-                writer.write(s);
+                if (Pattern.matches("^[a-zA-Z_]\\w*$", s)) {
+                    writer.write(s);
+                    for (int i = 0; i < list.size(); i++) {
+                        try {
+                            if (isNumeric(list.get(i))) {
+                                writer.write("\t" + Double.parseDouble(list.get(i)));
+                            } else {
+                                writer.write("\t" + list.get(i));
+                            }
+                        } catch (NumberFormatException e) {
+                            writer.write("\tNA");
+                        }
+                    }
+                    writer.write("\n");
+                    writer.flush();
+                }
+                writer2.write(s);
                 for (int i = 0; i < list.size(); i++) {
                     try {
                         if (isNumeric(list.get(i))) {
-                            writer.write("\t" + Double.parseDouble(list.get(i)));
+                            writer2.write("\t" + Double.parseDouble(list.get(i)));
                         } else {
-                            writer.write("\t" + list.get(i));
+                            writer2.write("\t" + list.get(i));
                         }
                     } catch (NumberFormatException e) {
-                        writer.write("\tNA");
+                        writer2.write("\tNA");
                     }
                 }
-                writer.write("\n");
-                writer.flush();
+                writer2.write("\n");
+                writer2.flush();
 
             }
 
             writer.close();
+            writer2.close();
             testWrt.close();
             wrtTruth.close();
             wrtDiff.close();
