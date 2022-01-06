@@ -415,33 +415,19 @@ let unival_localizer work_dir bug_desc =
   Instrument.run scenario.work_dir;
   unival_compile scenario bug_desc;
   unival_run_test scenario bug_desc;
-  Unix.create_process "mv"
-    [|
-      "mv";
-      Filename.concat scenario.work_dir "output.txt";
-      Filename.concat scenario.work_dir "localizer-out/";
-    |]
-    Unix.stdin Unix.stdout Unix.stderr
-  |> ignore;
-  Unix.wait () |> ignore;
-  Unix.create_process "mv"
-    [|
-      "mv";
-      Filename.concat scenario.work_dir "CausalMap.txt";
-      Filename.concat scenario.work_dir "localizer-out/";
-    |]
-    Unix.stdin Unix.stdout Unix.stderr
-  |> ignore;
-  Unix.wait () |> ignore;
-  Unix.create_process "mv"
-    [|
-      "mv";
-      Filename.concat scenario.work_dir "FaultCandidates.txt";
-      Filename.concat scenario.work_dir "localizer-out/";
-    |]
-    Unix.stdin Unix.stdout Unix.stderr
-  |> ignore;
-  Unix.wait () |> ignore
+  List.iter
+    (fun filename ->
+      Unix.create_process "cp"
+        [|
+          "cp";
+          "-rf";
+          Filename.concat scenario.work_dir filename;
+          Filename.concat scenario.work_dir "localizer-out/";
+        |]
+        Unix.stdin Unix.stdout Unix.stderr
+      |> ignore;
+      Unix.wait () |> ignore)
+    [ "output.txt"; "CausalMap.txt"; "FaultCandidates.txt"; "src/" ]
 
 let coverage work_dir bug_desc =
   let scenario = Scenario.init ~stdio_only:true work_dir in
