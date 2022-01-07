@@ -55,7 +55,8 @@ let rec find_file filename root_dir =
       let file_path = Filename.concat root_dir file in
       if (Unix.lstat file_path).st_kind = Unix.S_LNK then paths
       else if Sys.is_directory file_path then
-        paths @ find_file filename file_path
+        if Filename.check_suffix file_path "mytest" then paths
+        else paths @ find_file filename file_path
       else if Filename.basename file_path = Filename.basename filename then
         file_path :: paths
       else paths)
