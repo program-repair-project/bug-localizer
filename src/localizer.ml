@@ -8,7 +8,7 @@ module BugLocation = struct
     F.fprintf fmt "%s:%d\t%f %f %f %d" l.Cil.file l.Cil.line score_neg score_pos
       score score_time
 
-  let pp_cov fmt (l, score_neg, score_pos, score, score_time) =
+  let pp_cov fmt (l, score_neg, score_pos, score, _score_time) =
     F.fprintf fmt "%s:%d,%d,%d,%f"
       (l.Cil.file |> Filename.basename)
       l.Cil.line (int_of_float score_pos) (int_of_float score_neg) score
@@ -116,15 +116,15 @@ let spec_localizer work_dir bug_desc _ =
      |> print_file);
   spec
 
-let prophet_localizer work_dir bug_desc locations =
+let prophet_localizer _work_dir _bug_desc locations =
   List.stable_sort
-    (fun (_, s11, s12, s13, s14) (_, s21, s22, s23, s24) ->
+    (fun (_, s11, s12, _, s14) (_, s21, s22, _, s24) ->
       if s21 -. s11 <> 0. then int_of_float (s21 -. s11)
       else if s12 -. s22 <> 0. then int_of_float (s12 -. s22)
       else s24 - s14)
     locations
 
-let tarantula_localizer work_dir bug_desc locations =
+let tarantula_localizer _work_dir bug_desc locations =
   let test_cases = bug_desc.BugDesc.test_cases in
   let pos_num =
     List.fold_left
@@ -159,7 +159,7 @@ let tarantula_localizer work_dir bug_desc locations =
       if s23 > s13 then 1 else if s23 = s13 then 0 else -1)
     taran_loc
 
-let ochiai_localizer work_dir bug_desc locations =
+let ochiai_localizer _work_dir bug_desc locations =
   let test_cases = bug_desc.BugDesc.test_cases in
   let pos_num =
     List.fold_left
@@ -179,7 +179,7 @@ let ochiai_localizer work_dir bug_desc locations =
     List.map
       (fun (l, s1, s2, _, _) ->
         let nep = s2 in
-        let nnp = float_of_int pos_num -. s2 in
+        let _nnp = float_of_int pos_num -. s2 in
         let nef = s1 in
         let nnf = float_of_int neg_num -. s1 in
         let sub_denom1 = nef +. nnf in
@@ -194,7 +194,7 @@ let ochiai_localizer work_dir bug_desc locations =
       if s23 > s13 then 1 else if s23 = s13 then 0 else -1)
     ochiai_loc
 
-let jaccard_localizer work_dir bug_desc locations =
+let jaccard_localizer _work_dir bug_desc locations =
   let test_cases = bug_desc.BugDesc.test_cases in
   let pos_num =
     List.fold_left
@@ -214,7 +214,7 @@ let jaccard_localizer work_dir bug_desc locations =
     List.map
       (fun (l, s1, s2, _, _) ->
         let nep = s2 in
-        let nnp = float_of_int pos_num -. s2 in
+        let _nnp = float_of_int pos_num -. s2 in
         let nef = s1 in
         let nnf = float_of_int neg_num -. s1 in
         let denom = nef +. nnf +. nep in
@@ -322,7 +322,6 @@ let diff_localizer work_dir bug_desc localizer_list =
     | Unix.WEXITED n -> failwith ("Error " ^ string_of_int n ^ ": make distclean failed")
     | _ -> failwith "make distclean failed");*)
   Unix.chdir "/experiment";
-  let open Yojson in
   let open Yojson.Basic.Util in
   let json = Yojson.Basic.from_file "line_matching.json" in
   let changed_file = json |> member "changed_files" |> to_assoc in
