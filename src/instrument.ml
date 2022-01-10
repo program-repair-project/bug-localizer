@@ -168,29 +168,36 @@ end
 
 let preamble src_dir mode =
   String.concat ""
-    [
-      "/* COVERAGE :: INSTRUMENTATION :: START */\n";
-      "typedef struct _IO_FILE FILE;\n";
-      "struct _IO_FILE *__inst_stream ;\n";
-      "extern FILE *fopen(char const   * __restrict  __filename , char const   \
-       * __restrict  __modes ) ;\n";
-      "extern int fclose(FILE *__stream ) ;\n";
-      "static void coverage_ctor (void) __attribute__ ((constructor));\n";
-      "static void coverage_ctor (void) {\n";
-      "  int pid = getpid();\n";
-      "  char filename[64];\n";
-      "  sprintf(filename, \"" ^ src_dir ^ "/coverage_data" ^ "/tmp/" ^ mode
-      ^ "-%d.txt\", pid);\n";
-      "  __inst_stream = fopen(filename, \"a\");\n";
-      "  fprintf(__inst_stream, \"__START_NEW_EXECUTION__\\n\");\n";
-      "  fflush(__inst_stream);\n";
-      "}\n";
-      "static void coverage_dtor (void) __attribute__ ((destructor));\n";
-      "static void coverage_dtor (void) {\n";
-      "  fclose(__inst_stream);\n";
-      "}\n";
-      "/* COVERAGE :: INSTRUMENTATION :: END */\n";
-    ]
+    ([
+       "/* COVERAGE :: INSTRUMENTATION :: START */\n";
+       "typedef struct _IO_FILE FILE;\n";
+       "struct _IO_FILE *__inst_stream ;\n";
+       "extern FILE *fopen(char const   * __restrict  __filename , char \
+        const   * __restrict  __modes ) ;\n";
+       "extern int fclose(FILE *__stream ) ;\n";
+       "static void coverage_ctor (void) __attribute__ ((constructor));\n";
+       "static void coverage_ctor (void) {\n";
+     ]
+    @ (if mode = "output" then
+       [ "__inst_stream = fopen(\"" ^ src_dir ^ "/output.txt\", \"a\");\n" ]
+      else
+        [
+          "  int pid = getpid();\n";
+          "  char filename[64];\n";
+          "  sprintf(filename, \"" ^ src_dir ^ "/coverage_data" ^ "/tmp/" ^ mode
+          ^ "-%d.txt\", pid);\n";
+          "  __inst_stream = fopen(filename, \"a\");\n";
+          "  fprintf(__inst_stream, \"__START_NEW_EXECUTION__\\n\");\n";
+          "  fflush(__inst_stream);\n";
+        ])
+    @ [
+        "}\n";
+        "static void coverage_dtor (void) __attribute__ ((destructor));\n";
+        "static void coverage_dtor (void) {\n";
+        "  fclose(__inst_stream);\n";
+        "}\n";
+        "/* COVERAGE :: INSTRUMENTATION :: END */\n";
+      ])
 
 let found_type = ref None
 
