@@ -12,7 +12,15 @@ module BugLocation = struct
     F.fprintf fmt "%s:%d,%d,%d,%f"
       (l.Cil.file |> Filename.basename)
       l.Cil.line (int_of_float score_pos) (int_of_float score_neg) score
+
+  let pp_file fmt l = F.fprintf fmt "%s" (l.Cil.file |> Filename.basename)
 end
+
+let print_file locations resultname =
+  let oc3 = Filename.concat !Cmdline.out_dir resultname |> open_out in
+  let fmt3 = F.formatter_of_out_channel oc3 in
+  List.iter (fun l -> F.fprintf fmt3 "%a\n" BugLocation.pp_file l) locations;
+  close_out oc3
 
 let print_coverage locations resultname =
   let oc2 = Filename.concat !Cmdline.out_dir resultname |> open_out in
@@ -96,9 +104,17 @@ let spec_localizer work_dir bug_desc _ =
             (s1 +. new_s1, s2 +. new_s2, s3 +. new_s3, s4 + new_s4)
       | _ -> Hashtbl.add table l (s1, s2, s3, s4))
     locations;
-  List.map
-    (fun (l, (s1, s2, s3, s4)) -> (l, s1, s2, s3, s4))
-    (List.of_seq (Hashtbl.to_seq table))
+  let spec =
+    List.map
+      (fun (l, (s1, s2, s3, s4)) -> (l, s1, s2, s3, s4))
+      (List.of_seq (Hashtbl.to_seq table))
+  in
+  "coverage_file.txt"
+  |> (List.fold_left
+        (fun acc (l, _, _, _, _) -> if List.mem l acc then acc else l :: acc)
+        [] spec
+     |> print_file);
+  spec
 
 let prophet_localizer work_dir bug_desc locations =
   List.stable_sort
