@@ -390,7 +390,8 @@ module GSA = struct
               Cil.Const
                 (Cil.CStr
                    (Printf.sprintf "%s,%s,%d,%s,%d" filename funcname line
-                      varname version
+                      (funcname ^ "_" ^ varname)
+                      version
                    ^ "," ^ fmt ^ "\n"));
               var_exp;
             ],
