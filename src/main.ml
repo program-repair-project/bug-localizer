@@ -5,6 +5,9 @@ let initialize work_dir =
   (try Unix.mkdir out_dir 0o775 with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
   let cov_dir = Filename.concat work_dir "coverage_data" in
   (try Unix.mkdir cov_dir 0o775 with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
+  let cov_tmp_dir = Filename.concat cov_dir "tmp" in
+  (try Unix.mkdir cov_tmp_dir 0o775
+   with Unix.Unix_error (Unix.EEXIST, _, _) -> ());
   print_endline ("Logging to " ^ out_dir);
   Logging.log_file :=
     Filename.concat out_dir "log.txt" |> open_out |> Option.some;

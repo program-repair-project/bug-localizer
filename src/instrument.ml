@@ -170,15 +170,20 @@ let preamble src_dir mode =
   String.concat ""
     [
       "/* COVERAGE :: INSTRUMENTATION :: START */\n";
-      "typedef struct _IO_FILE FILE;";
-      "struct _IO_FILE *__inst_stream ;";
+      "typedef struct _IO_FILE FILE;\n";
+      "struct _IO_FILE *__inst_stream ;\n";
       "extern FILE *fopen(char const   * __restrict  __filename , char const   \
-       * __restrict  __modes ) ;";
-      "extern int fclose(FILE *__stream ) ;";
+       * __restrict  __modes ) ;\n";
+      "extern int fclose(FILE *__stream ) ;\n";
       "static void coverage_ctor (void) __attribute__ ((constructor));\n";
       "static void coverage_ctor (void) {\n";
-      "  __inst_stream = fopen(\"" ^ src_dir ^ "/" ^ mode ^ ".txt"
-      ^ "\", \"a\");\n";
+      "  int pid = getpid();\n";
+      "  char filename[64];\n";
+      "  sprintf(filename, \"" ^ src_dir ^ "/coverage_data" ^ "/tmp/" ^ mode
+      ^ "-%d.txt\", pid);\n";
+      "  __inst_stream = fopen(filename, \"a\");\n";
+      "  fprintf(__inst_stream, \"__START_NEW_EXECUTION__\\n\");\n";
+      "  fflush(__inst_stream);\n";
       "}\n";
       "static void coverage_dtor (void) __attribute__ ((destructor));\n";
       "static void coverage_dtor (void) {\n";
@@ -746,8 +751,10 @@ module Coverage = struct
                       (fun is i ->
                         let loc = Cil.get_instrLoc i in
                         let call = printf_of printf stream loc in
-                        let flush = flush_of flush stream loc in
-                        i :: flush :: call :: is)
+                        if not !Cmdline.no_seg then
+                          let flush = flush_of flush stream loc in
+                          i :: flush :: call :: is
+                        else i :: call :: is)
                       [] insts
                     |> List.rev
                   in
@@ -758,8 +765,12 @@ module Coverage = struct
                   let call =
                     printf_of printf stream loc |> Cil.mkStmtOneInstr
                   in
-                  let flush = flush_of flush stream loc |> Cil.mkStmtOneInstr in
-                  s :: flush :: call :: bstmts)
+                  if not !Cmdline.no_seg then
+                    let flush =
+                      flush_of flush stream loc |> Cil.mkStmtOneInstr
+                    in
+                    s :: flush :: call :: bstmts
+                  else s :: call :: bstmts)
             [] blk.Cil.bstmts
           |> List.rev
         in
@@ -769,6 +780,7 @@ module Coverage = struct
 
   let instrument work_dir pt_file =
     Cil.resetCIL ();
+    Cil.insertImplicitCasts := false;
     let origin_file = Filename.remove_extension pt_file ^ ".c" in
     Logging.log "Instrument Coverage %s (%s)" origin_file pt_file;
     let cil_opt =
@@ -819,8 +831,14 @@ module Coverage = struct
           close_out oc);
         if
           List.mem
-            (Filename.basename origin_file)
-            [ "gzip.c"; "tif_unix.c"; "http_auth.c"; "main.c"; "version.c" ]
+            (Unix.realpath origin_file)
+            [
+              "/experiment/src/gzip.c";
+              "/experiment/src/libtiff/tif_unix.c";
+              "/experiment/src/src/http_auth.c";
+              "/experiment/src/main/main.c";
+              "/experiment/src/version.c";
+            ]
         then append_constructor work_dir origin_file "coverage"
 
   let run work_dir src_dir =
@@ -829,6 +847,7 @@ end
 
 let run work_dir =
   Cil.initCIL ();
+  Cil.insertImplicitCasts := false;
   let src_dir = Filename.concat work_dir "src" in
   match !Cmdline.instrument with
   | Cmdline.DfSan -> DfSan.run work_dir src_dir

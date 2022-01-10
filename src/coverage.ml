@@ -169,24 +169,26 @@ module LineCoverage2 = struct
           if List.mem line [ ""; "__START_NEW_EXECUTION__" ] then elem
           else
             let lst = String.split_on_char ':' line in
-            let filename, lineno =
-              (List.nth lst 0, List.nth lst 1 |> int_of_string)
-            in
-            {
-              elem with
-              coverage_set =
-                StrMap.update filename
-                  (function
-                    | Some s -> Some (IntSet.add lineno s)
-                    | None -> Some (IntSet.singleton lineno))
-                  elem.coverage_set;
-              linehistory =
-                []
-                (*( lineno,
-                    if elem.linehistory = [] then 0
-                    else snd (List.hd elem.linehistory) + 1 )
-                  :: elem.linehistory;*);
-            })
+            try
+              let filename, lineno =
+                (List.nth lst 0, List.nth lst 1 |> int_of_string)
+              in
+              {
+                elem with
+                coverage_set =
+                  StrMap.update filename
+                    (function
+                      | Some s -> Some (IntSet.add lineno s)
+                      | None -> Some (IntSet.singleton lineno))
+                    elem.coverage_set;
+                linehistory =
+                  []
+                  (*( lineno,
+                      if elem.linehistory = [] then 0
+                      else snd (List.hd elem.linehistory) + 1 )
+                    :: elem.linehistory;*);
+              }
+            with _ -> elem)
         (elem_of test) data
     in
     elem :: coverage
@@ -203,18 +205,22 @@ module LineCoverage2 = struct
     Scenario.compile scenario bug_desc.BugDesc.compiler_type;
     Unix.chdir scenario.Scenario.work_dir;
     Logging.log "Start test";
-    let cov_path = Filename.concat scenario.work_dir "coverage.txt" in
+    let _cov_path = Filename.concat scenario.work_dir "coverage.txt" in
     List.fold_left
       (fun coverage test ->
-        let oc = open_out_gen [ Open_append; Open_creat ] 0o775 cov_path in
-        Printf.fprintf oc "__START_NEW_EXECUTION__";
-        close_out oc;
+        (*let regexp_pos = Str.regexp "p.*" in
+          if Str.string_match regexp_pos test 0 then coverage*)
         Scenario.run_test scenario.test_script test;
+        Unix.system
+          "cat /experiment/coverage_data/tmp/*.txt > \
+           /experiment/coverage_data/coverage.txt"
+        |> ignore;
+        Unix.system "rm -f /experiment/coverage_data/tmp/*.txt" |> ignore;
         let cur_cov_path =
           (* Filename.concat "coverage_data" ("coverage." ^ test ^ ".txt") *)
-          Filename.concat "coverage_data" "coverage0.txt"
+          Filename.concat "coverage_data" "coverage.txt"
         in
-        Unix.system ("mv " ^ cov_path ^ " " ^ cur_cov_path) |> ignore;
+        (*Unix.system ("mv " ^ cov_path ^ " " ^ cur_cov_path) |> ignore;*)
         update_coverage cur_cov_path test coverage)
       empty bug_desc.BugDesc.test_cases
     |> List.map elem_of_internal

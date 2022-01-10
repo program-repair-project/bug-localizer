@@ -51,6 +51,8 @@ let gnu_source = ref false
 
 let bic = ref false
 
+let no_seg = ref false
+
 let options =
   [
     ("-outdir", Arg.Set_string out_dir, "Output directory");
@@ -70,6 +72,9 @@ let options =
       "Add #define _GNU_SOURCE when instrumentation for some programs (e.g., \
        gimp)" );
     ("-bic", Arg.Set bic, "Select whether using bic or not");
+    ( "-no_seg",
+      Arg.Set no_seg,
+      "Do not instrument fflush after every line if there is no segfault" );
   ]
 
 let parse_arg x =
