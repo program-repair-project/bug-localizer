@@ -397,7 +397,7 @@ module GSA = struct
               Cil.Const
                 (Cil.CStr
                    (Printf.sprintf "%s,%s,%d,%s,%d" filename funcname line
-                      (funcname ^ "_" ^ varname)
+                      ("UNIVAL_" ^ funcname ^ "_" ^ varname)
                       version
                    ^ "," ^ fmt ^ "\n"));
               var_exp;
@@ -473,29 +473,39 @@ module GSA = struct
             (fun ev _ (vs, nvs) ->
               (* for debugging *)
               (* print_endline "a"; *)
-              let fn_ev = f.Cil.svar.vname ^ "_" ^ ev in
-              if VarVerMap.mem fn_ev !var_ver then
-                let ver = VarVerMap.find fn_ev !var_ver in
-                ( (fn_ev ^ "_" ^ string_of_int ver) :: vs,
-                  (fn_ev ^ "_" ^ string_of_int (ver + 1)) :: nvs )
-              else if VarVerMap.mem ev !var_ver then
+              let unival_fn_ev = "UNIVAL_" ^ f.Cil.svar.vname ^ "_" ^ ev in
+              let unival_ev = "UNIVAL_" ^ ev in
+              if VarVerMap.mem unival_fn_ev !var_ver then
+                let ver = VarVerMap.find unival_fn_ev !var_ver in
+                ( (unival_fn_ev ^ "_" ^ string_of_int ver) :: vs,
+                  (unival_fn_ev ^ "_" ^ string_of_int (ver + 1)) :: nvs )
+              else if VarVerMap.mem unival_ev !var_ver then
                 let ver = VarVerMap.find ev !var_ver in
-                ( (ev ^ "_" ^ string_of_int ver) :: vs,
-                  (ev ^ "_" ^ string_of_int (ver + 1)) :: nvs )
-              else raise (Failure "Not_Found_Var"))
+                ( (unival_ev ^ "_" ^ string_of_int ver) :: vs,
+                  (unival_ev ^ "_" ^ string_of_int (ver + 1)) :: nvs )
+              else (
+                print_endline unival_fn_ev;
+                raise (Failure "Not_Found_Var")))
             exp_vars ([], [])
         in
-        let fn_lval = f.Cil.svar.vname ^ "_" ^ lval in
-        causal_map := CausalMap.add fn_lval exp_vars_with_ver !causal_map;
-        let fn_exp_vars =
+        let unival_fn_lval = "UNIVAL_" ^ f.Cil.svar.vname ^ "_" ^ lval in
+        causal_map := CausalMap.add unival_fn_lval exp_vars_with_ver !causal_map;
+        let unival_fn_exp_vars =
           VarMap.fold
-            (fun v _ fevs -> VarSet.add (f.Cil.svar.vname ^ "_" ^ v) fevs)
+            (fun v _ fevs ->
+              VarSet.add ("UNIVAL_" ^ f.Cil.svar.vname ^ "_" ^ v) fevs)
+            exp_vars VarSet.empty
+        in
+        let unival_exp_vars =
+          VarMap.fold
+            (fun v _ fevs -> VarSet.add ("UNIVAL_" ^ v) fevs)
             exp_vars VarSet.empty
         in
         let new_var_ver =
           VarVerMap.mapi
             (fun v ver ->
-              if VarSet.mem v fn_exp_vars || VarMap.mem v exp_vars then ver + 1
+              if VarSet.mem v unival_fn_exp_vars || VarSet.mem v unival_exp_vars
+              then ver + 1
               else ver)
             !var_ver
         in
@@ -509,11 +519,14 @@ module GSA = struct
             (fun vname vi rs ->
               (* for debugging *)
               (* print_endline "b"; *)
-              let fn_vname = f.Cil.svar.vname ^ "_" ^ vname in
+              let unival_fn_vname =
+                "UNIVAL_" ^ f.Cil.svar.vname ^ "_" ^ vname
+              in
+              let unival_vname = "UNIVAL_" ^ vname in
               call_record (Cil.Var vi, Cil.NoOffset) vname
-                (if VarMap.mem fn_vname new_var_ver then
-                 VarMap.find fn_vname new_var_ver
-                else VarMap.find vname new_var_ver)
+                (if VarMap.mem unival_fn_vname new_var_ver then
+                 VarMap.find unival_fn_vname new_var_ver
+                else VarMap.find unival_vname new_var_ver)
                 loc
               @ rs)
             exp_vars []
@@ -521,39 +534,43 @@ module GSA = struct
         var_ver := new_var_ver;
         result @ (instr :: (pred_record @ records)))
       else
-        let fn_lval = f.Cil.svar.vname ^ "_" ^ lval in
+        let unival_fn_lval = "UNIVAL_" ^ f.Cil.svar.vname ^ "_" ^ lval in
+        let unival_lval = "UNIVAL_" ^ lval in
         let new_var_ver =
-          if VarVerMap.mem fn_lval !var_ver then
-            VarVerMap.update fn_lval
+          if VarVerMap.mem unival_fn_lval !var_ver then
+            VarVerMap.update unival_fn_lval
               (fun ver -> Some (Option.get ver + 1))
               !var_ver
-          else if VarVerMap.mem lval !var_ver then
-            VarVerMap.update lval
+          else if VarVerMap.mem unival_lval !var_ver then
+            VarVerMap.update unival_lval
               (fun ver -> Some (Option.get ver + 1))
               !var_ver
-          else VarVerMap.add fn_lval 0 !var_ver
+          else VarVerMap.add unival_fn_lval 0 !var_ver
         in
         let exp_vars_with_ver =
           VarMap.fold
             (fun ev _ vs ->
               (* for debugging *)
               (* print_endline ev; *)
-              let fn_ev = f.Cil.svar.vname ^ "_" ^ ev in
-              if VarVerMap.mem fn_ev !var_ver then
-                let ver = VarVerMap.find fn_ev !var_ver in
-                (fn_ev ^ "_" ^ string_of_int ver) :: vs
-              else if VarVerMap.mem ev !var_ver then
-                let ver = VarVerMap.find ev !var_ver in
-                (ev ^ "_" ^ string_of_int ver) :: vs
-              else raise (Failure "Not_Found_Var"))
+              let unival_fn_ev = "UNIVAL_" ^ f.Cil.svar.vname ^ "_" ^ ev in
+              let unival_ev = "UNIVAL_" ^ ev in
+              if VarVerMap.mem unival_fn_ev !var_ver then
+                let ver = VarVerMap.find unival_fn_ev !var_ver in
+                (unival_fn_ev ^ "_" ^ string_of_int ver) :: vs
+              else if VarVerMap.mem unival_ev !var_ver then
+                let ver = VarVerMap.find unival_ev !var_ver in
+                (unival_ev ^ "_" ^ string_of_int ver) :: vs
+              else (
+                print_endline unival_fn_ev;
+                raise (Failure "Not_Found_Var")))
             exp_vars []
         in
         (* for debugging *)
         (* print_endline "d"; *)
         let final_lval, ver_of_lval =
-          if VarVerMap.mem fn_lval new_var_ver then
-            (fn_lval, VarVerMap.find fn_lval new_var_ver)
-          else (lval, VarVerMap.find lval new_var_ver)
+          if VarVerMap.mem unival_fn_lval new_var_ver then
+            (unival_fn_lval, VarVerMap.find unival_fn_lval new_var_ver)
+          else (unival_lval, VarVerMap.find unival_lval new_var_ver)
         in
         let lval_with_ver = final_lval ^ "_" ^ string_of_int ver_of_lval in
         causal_map := CausalMap.add lval_with_ver exp_vars_with_ver !causal_map;
@@ -586,14 +603,14 @@ module GSA = struct
             (fun form ->
               var_ver :=
                 VarVerMap.add
-                  (f.Cil.svar.vname ^ "_" ^ form.Cil.vname)
+                  ("UNIVAL_" ^ f.Cil.svar.vname ^ "_" ^ form.Cil.vname)
                   0 !var_ver)
             f.Cil.sformals;
           List.iter
             (fun local ->
               var_ver :=
                 VarVerMap.add
-                  (f.Cil.svar.vname ^ "_" ^ local.Cil.vname)
+                  ("UNIVAL_" ^ f.Cil.svar.vname ^ "_" ^ local.Cil.vname)
                   0 !var_ver)
             f.Cil.slocals;
           ChangeTo
@@ -618,8 +635,11 @@ module GSA = struct
     let ori_file_num = List.length origin_file_paths in
     if ori_file_num = 0 then ()
     else (
+      (* print_endline (string_of_int ori_file_num);
+         List.iter print_endline origin_file_paths; *)
       assert (ori_file_num = 1);
       let origin_file = List.hd origin_file_paths in
+      (* let origin_file = Filename.remove_extension pt_file ^ ".c" in *)
       Logging.log "GSA_Gen %s (%s)" origin_file pt_file;
       let cil_opt =
         try Some (Frontc.parse pt_file ()) with Frontc.ParseError _ -> None
@@ -654,7 +674,7 @@ module GSA = struct
           let global_vars = extract_gvar cil.Cil.globals in
           var_ver :=
             List.fold_left
-              (fun vv gv -> VarVerMap.add gv 0 vv)
+              (fun vv gv -> VarVerMap.add ("UNIVAL_" ^ gv) 0 vv)
               VarVerMap.empty global_vars;
           Cil.visitCilFile (new funAssignVisitor (printf, flush, stream)) cil;
           Unix.system
@@ -672,7 +692,7 @@ module GSA = struct
           if
             List.mem
               (Filename.basename origin_file)
-              [ "gzip.c"; "tif_unix.c"; "http_auth.c"; "main.c" ]
+              [ "gzip.c"; "tif_unix.c"; "http_auth.c"; "main.c"; "version.c" ]
           then append_constructor work_dir origin_file "output")
 
   let print_cm work_dir causal_map =
