@@ -209,7 +209,8 @@ module LineCoverage2 = struct
     List.fold_left
       (fun coverage test ->
         (*let regexp_pos = Str.regexp "p.*" in
-          if Str.string_match regexp_pos test 0 then coverage*)
+            if Str.string_match regexp_pos test 0 then coverage
+          else*)
         Scenario.run_test scenario.test_script test;
         Unix.system
           "cat /experiment/coverage_data/tmp/*.txt > \
