@@ -5,7 +5,7 @@ set -e
 export OPAMYES=1
 
 NCPU="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)"
-OCAML_VERSION="4.11.0+flambda"
+OCAML_VERSION="4.13.0"
 OPAM_SWITCH=program-repair-project-$OCAML_VERSION
 
 opam init --compiler=$OCAML_VERSION -j $NCPU --no-setup
