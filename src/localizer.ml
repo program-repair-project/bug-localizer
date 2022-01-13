@@ -40,7 +40,8 @@ let print_coverage locations resultname =
   let oc2 = Filename.concat !Cmdline.out_dir resultname |> open_out in
   let fmt2 = F.formatter_of_out_channel oc2 in
   List.iter (fun l -> F.fprintf fmt2 "%a\n" BugLocation.pp_cov l) locations;
-  close_out oc2
+  close_out oc2;
+  locations
 
 let print locations resultname =
   let oc = Filename.concat !Cmdline.out_dir resultname |> open_out in
@@ -56,8 +57,10 @@ let copy_src () =
 
   match Unix.wait () |> snd with
   | Unix.WEXITED 0 -> ()
-  | Unix.WEXITED n -> failwith ("Error " ^ string_of_int n ^ ": copy failed")
-  | _ -> failwith "copy failed"
+  | Unix.WEXITED n ->
+      () (*failwith ("Error " ^ string_of_int n ^ ": copy failed")*)
+  | _ -> ()
+(*failwith "copy failed"*)
 
 let dummy_localizer work_dir bug_desc =
   let coverage = LineCoverage.run work_dir bug_desc in
@@ -80,53 +83,53 @@ let spec_localizer work_dir bug_desc _ =
   let coverage = LineCoverage.run work_dir bug_desc in
   Logging.log "Coverage: %a" LineCoverage.pp coverage;
   copy_src ();
-  let locations =
-    List.fold_left
-      (fun locs (elem : LineCoverage.elem) ->
-        let regexp_pos = Str.regexp "p.*" in
-        Coverage.StrMap.fold
-          (fun file lines locs ->
-            let new_locs =
-              if Str.string_match regexp_pos elem.LineCoverage.test 0 then
-                List.rev_map
-                  (fun line -> ({ Cil.file; line; byte = 0 }, 0.0, 1.0, 0.0, 0))
-                  lines
-              else
-                List.rev_map
-                  (fun line ->
-                    ( { Cil.file; line; byte = 0 },
-                      1.0,
-                      0.0,
-                      0.0,
-                      (*List.find
-                          (fun (x, y) -> x = line)
-                          elem.LineCoverage.linehistory
-                        |> snd *)
-                      0 ))
-                  lines
-            in
-            List.rev_append new_locs locs)
-          elem.LineCoverage.coverage locs)
-      [] coverage
-  in
   let table = Hashtbl.create 99999 in
-  List.iter
-    (fun (l, s1, s2, s3, s4) ->
-      match Hashtbl.find_opt table l with
-      | Some (new_s1, new_s2, new_s3, new_s4) ->
-          Hashtbl.replace table l
-            (s1 +. new_s1, s2 +. new_s2, s3 +. new_s3, s4 + new_s4)
-      | _ -> Hashtbl.add table l (s1, s2, s3, s4))
-    locations;
-  let spec =
-    List.map
-      (fun (l, (s1, s2, s3, s4)) -> (l, s1, s2, s3, s4))
-      (List.of_seq (Hashtbl.to_seq table))
-  in
-  (*"coverage_file.txt"
-    |> ( spec
-       |> print_file);*)
-  spec
+  List.fold_left
+    (fun locs (elem : LineCoverage.elem) ->
+      let regexp_pos = Str.regexp "p.*" in
+      Coverage.StrMap.fold
+        (fun file lines locs ->
+          let new_locs =
+            if Str.string_match regexp_pos elem.LineCoverage.test 0 then
+              List.rev_map
+                (fun line -> ({ Cil.file; line; byte = 0 }, 0.0, 1.0, 0.0, 0))
+                lines
+            else
+              List.rev_map
+                (fun line ->
+                  ( { Cil.file; line; byte = 0 },
+                    1.0,
+                    0.0,
+                    0.0,
+                    (*List.find
+                        (fun (x, y) -> x = line)
+                        elem.LineCoverage.linehistory
+                      |> snd *)
+                    0 ))
+                lines
+          in
+          List.rev_append new_locs locs)
+        elem.LineCoverage.coverage locs)
+    [] coverage
+  |> List.iter (fun (l, s1, s2, s3, s4) ->
+         match Hashtbl.find_opt table l with
+         | Some (new_s1, new_s2, new_s3, new_s4) ->
+             Hashtbl.replace table l
+               (s1 +. new_s1, s2 +. new_s2, s3 +. new_s3, s4 + new_s4)
+         | _ -> Hashtbl.add table l (s1, s2, s3, s4));
+  if bug_desc.BugDesc.program = "php" then (
+    Unix.create_process "sudo"
+      [| "sudo"; "rm"; "-rf"; "/experiment/src/test/bad" |]
+      Unix.stdin Unix.stdout Unix.stderr
+    |> ignore;
+    match Unix.wait () |> snd with
+    | Unix.WEXITED 0 -> ()
+    | Unix.WEXITED n -> failwith ("Error " ^ string_of_int n ^ ": rm bad failed")
+    | _ -> failwith "rm bad failed");
+
+  List.map
+    (fun (l, (s1, s2, s3, s4)) -> (l, s1, s2, s3, s4))
+    (List.of_seq (Hashtbl.to_seq table))
 
 let prophet_localizer _work_dir _bug_desc locations =
   List.stable_sort
@@ -279,8 +282,19 @@ let diff_localizer work_dir bug_desc localizer_list =
   | _ -> failwith "configure failed");
 
   Unix.chdir "/experiment";
-  let bic_locations = spec_localizer work_dir bug_desc () in
-  (*let bic_result = tarantula_localizer work_dir bug_desc locations in*)
+
+  (*let bic_locations = spec_localizer work_dir bug_desc () in*)
+  let table = Hashtbl.create 99999 in
+  let table_parent = Hashtbl.create 99999 in
+
+  spec_localizer work_dir bug_desc ()
+  |> List.iter (fun (l, s1, s2, s3, s4) ->
+         match Hashtbl.find_opt table l with
+         | Some (new_s1, new_s2, new_s3, new_s4) ->
+             Hashtbl.replace table l
+               (s1 +. new_s1, s2 +. new_s2, s3 +. new_s3, s4 + new_s4)
+         | _ -> Hashtbl.add table l (s1, s2, s3, s4));
+
   Unix.chdir "/experiment";
   Unix.create_process "./parent_checkout.sh"
     [| "./parent_checkout.sh" |]
@@ -292,15 +306,6 @@ let diff_localizer work_dir bug_desc localizer_list =
       failwith ("Error " ^ string_of_int n ^ ": parent script failed test2")
   | _ -> failwith "parent script failed");
 
-  (*let _ = failwith "abc" in*)
-  (*Unix.create_process "./line_matching.py"
-      [| "./line_matching.py"; "./bic/"; "./src/" |]
-      Unix.stdin Unix.stdout Unix.stderr
-    |> ignore;
-    (match Unix.wait () |> snd with
-    | Unix.WEXITED 0 -> ()
-    | Unix.WEXITED n -> failwith ("Error " ^ string_of_int n ^ ": diff failed")
-    | _ -> failwith "diff failed");*)
   Unix.chdir "/experiment/src";
   Unix.create_process "./configure" [| "./configure" |] Unix.stdin Unix.stdout
     Unix.stderr
@@ -312,28 +317,16 @@ let diff_localizer work_dir bug_desc localizer_list =
   | _ -> failwith "configure failed");
 
   Unix.chdir "/experiment";
-  let parent_locations = spec_localizer work_dir bug_desc () in
+  spec_localizer work_dir bug_desc ()
+  |> List.iter (fun (l, s1, s2, s3, s4) ->
+         match Hashtbl.find_opt table_parent l with
+         | Some (new_s1, new_s2, new_s3, new_s4) ->
+             Hashtbl.replace table_parent l
+               (s1 +. new_s1, s2 +. new_s2, s3 +. new_s3, s4 + new_s4)
+         | _ -> Hashtbl.add table_parent l (s1, s2, s3, s4));
 
-  (*let parent_result = tarantula_localizer work_dir bug_desc locations in*)
-
-  (*Unix.chdir "/experiment/src";
-    Unix.create_process "make"
-      [| "make"; "clean" |]
-      Unix.stdin Unix.stdout Unix.stderr
-    |> ignore;
-    (match Unix.wait () |> snd with
-    | Unix.WEXITED 0 -> ()
-    | Unix.WEXITED n -> failwith ("Error " ^ string_of_int n ^ ": make clean failed")
-    | _ -> failwith "make clean failed");
-    Unix.create_process "make"
-      [| "make"; "distclean" |]
-      Unix.stdin Unix.stdout Unix.stderr
-    |> ignore;
-    (match Unix.wait () |> snd with
-    | Unix.WEXITED 0 -> ()
-    | Unix.WEXITED n -> failwith ("Error " ^ string_of_int n ^ ": make distclean failed")
-    | _ -> failwith "make distclean failed");*)
   Unix.chdir "/experiment";
+  (*
   let open Yojson.Basic.Util in
   let json = Yojson.Basic.from_file "line_matching.json" in
   let changed_file = json |> member "changed_files" |> to_assoc in
@@ -341,46 +334,36 @@ let diff_localizer work_dir bug_desc localizer_list =
     json |> member "unchanged_files" |> to_list
     |> List.map (fun a -> a |> to_string)
   in
-  let table = Hashtbl.create 99999 in
-  let table_parent = Hashtbl.create 99999 in
-  List.iter
-    (fun (l, s1, s2, s3, s4) ->
-      match Hashtbl.find_opt table l with
-      | Some (new_s1, new_s2, new_s3, new_s4) ->
-          Hashtbl.replace table l
-            (s1 +. new_s1, s2 +. new_s2, s3 +. new_s3, s4 + new_s4)
-      | _ -> Hashtbl.add table l (s1, s2, s3, s4))
-    bic_locations;
+  *)
   let bic_result =
     List.map
       (fun (l, (s1, s2, s3, s4)) -> (l, s1, s2, s3, s4))
       (List.of_seq (Hashtbl.to_seq table))
   in
+
   List.iter
     (fun (localizer, engine_name) ->
       "coverage_" ^ engine_name ^ "_bic.txt"
-      |> (List.map
-            (fun (l, (s1, s2, s3, s4)) -> (l, s1, s2, s3, s4))
-            (List.of_seq (Hashtbl.to_seq table))
-         |> localizer work_dir bug_desc
-         |> print_coverage)
-      (*print_file bic_result "coverage_file.txt"*))
+      |> (bic_result |> localizer work_dir bug_desc |> print_coverage)
+      |> ignore)
     localizer_list;
-  List.iter
-    (fun (l, s1, s2, s3, s4) ->
-      match Hashtbl.find_opt table_parent l with
-      | Some (new_s1, new_s2, new_s3, new_s4) ->
-          Hashtbl.replace table_parent l
-            (s1 +. new_s1, s2 +. new_s2, s3 +. new_s3, s4 + new_s4)
-      | _ -> Hashtbl.add table_parent l (s1, s2, s3, s4))
-    parent_locations;
+
+  (*
   let parent_result =
     List.map
       (fun (l, (s1, s2, s3, s4)) -> (l, s1, s2, s3, s4))
       (List.of_seq (Hashtbl.to_seq table_parent))
   in
-  print_coverage parent_result "coverage_parent.txt";
-  print_file bic_result parent_result "coverage_file.txt";
+  *)
+  "coverage_file.txt"
+  |> ("coverage_parent.txt"
+     |> (List.map
+           (fun (l, (s1, s2, s3, s4)) -> (l, s1, s2, s3, s4))
+           (List.of_seq (Hashtbl.to_seq table_parent))
+        |> print_coverage)
+     |> print_file bic_result);
+  []
+(*
   List.iter
     (fun (l, s1, s2, s3, s4) ->
       let new_l =
@@ -405,14 +388,14 @@ let diff_localizer work_dir bug_desc localizer_list =
             Hashtbl.replace table l
               (new_s1, s1 +. s2 +. new_s2, s3 +. new_s3, s4 + new_s4)
         | _ -> Hashtbl.add table l (0., s1 +. s2, s3, s4))
-    parent_locations;
-  let result =
-    List.map
-      (fun (l, (s1, s2, s3, s4)) -> (l, s1, s2, s3, s4))
-      (List.of_seq (Hashtbl.to_seq table))
-  in
-  print_coverage result "coverage_diff.txt";
-  result
+    parent_result;
+
+  "coverage_diff.txt"
+  |> (List.map
+        (fun (l, (s1, s2, s3, s4)) -> (l, s1, s2, s3, s4))
+        (List.of_seq (Hashtbl.to_seq table))
+     |> print_coverage)
+  *)
 
 let unival_compile scenario bug_desc =
   Unix.chdir scenario.Scenario.work_dir;
@@ -481,47 +464,22 @@ let run work_dir =
   | Cmdline.Dummy ->
       "result_dummy.txt" |> (dummy_localizer work_dir bug_desc |> print)
   | Cmdline.Tarantula ->
-      let locations =
-        localizer work_dir bug_desc [ (tarantula_localizer, "tarantula") ]
-      in
-      "result_tarantula.txt"
-      |> (tarantula_localizer work_dir bug_desc locations |> print)
+      localizer work_dir bug_desc [ (tarantula_localizer, "tarantula") ]
+      |> ignore
   | Cmdline.Prophet ->
-      let locations =
-        localizer work_dir bug_desc [ (prophet_localizer, "prophet") ]
-      in
-      "result_prophet.txt"
-      |> (prophet_localizer work_dir bug_desc locations |> print)
+      localizer work_dir bug_desc [ (prophet_localizer, "prophet") ] |> ignore
   | Cmdline.Jaccard ->
-      let locations =
-        localizer work_dir bug_desc [ (jaccard_localizer, "jaccard") ]
-      in
-      "result_jaccard.txt"
-      |> (jaccard_localizer work_dir bug_desc locations |> print)
+      localizer work_dir bug_desc [ (jaccard_localizer, "jaccard") ] |> ignore
   | Cmdline.Ochiai ->
-      let locations =
-        localizer work_dir bug_desc [ (ochiai_localizer, "ochiai") ]
-      in
-      "result_ochiai.txt"
-      |> (ochiai_localizer work_dir bug_desc locations |> print)
+      localizer work_dir bug_desc [ (ochiai_localizer, "ochiai") ] |> ignore
   | Cmdline.UniVal -> unival_localizer work_dir bug_desc
   | Cmdline.All ->
-      (*"result_unival.txt" |> (unival_localizer work_dir bug_desc |> print);*)
-      let locations =
-        localizer work_dir bug_desc
-          [
-            (prophet_localizer, "prophet");
-            (tarantula_localizer, "tarantula");
-            (jaccard_localizer, "jaccard");
-            (ochiai_localizer, "ochiai");
-          ]
-      in
-      "result_prophet.txt"
-      |> (prophet_localizer work_dir bug_desc locations |> print);
-      "result_tarantula.txt"
-      |> (tarantula_localizer work_dir bug_desc locations |> print);
-      "result_jaccard.txt"
-      |> (jaccard_localizer work_dir bug_desc locations |> print);
-      "result_ochiai.txt"
-      |> (ochiai_localizer work_dir bug_desc locations |> print)
+      localizer work_dir bug_desc
+        [
+          (prophet_localizer, "prophet");
+          (tarantula_localizer, "tarantula");
+          (jaccard_localizer, "jaccard");
+          (ochiai_localizer, "ochiai");
+        ]
+      |> ignore
   | Cmdline.Coverage -> coverage work_dir bug_desc
