@@ -283,7 +283,7 @@ module GSA = struct
         DoChildren
     end
 
-  class predicateVisitor =
+  class predicateVisitor faulty_func_list =
     object
       inherit Cil.nopCilVisitor
 
@@ -292,11 +292,13 @@ module GSA = struct
           String.length f.svar.vname >= 6
           && (String.equal (String.sub f.svar.vname 0 6) "bugzoo"
              || String.equal (String.sub f.svar.vname 0 6) "unival")
+          || List.length faulty_func_list > 0
+             && not (List.mem f.svar.vname faulty_func_list)
         then SkipChildren
         else ChangeTo (Cil.visitCilFunction (new assignInitializer f) f)
     end
 
-  let predicate_transform pp_file =
+  let predicate_transform ?(faulty_func_list = []) pp_file =
     let origin_file = Filename.basename (Filename.basename pp_file) in
     Logging.log "Predicate transform %s (%s)" origin_file pp_file;
     let cil_opt =
@@ -305,7 +307,7 @@ module GSA = struct
     if Option.is_none cil_opt then pp_file
     else
       let cil = Option.get cil_opt in
-      Cil.visitCilFile (new predicateVisitor) cil;
+      Cil.visitCilFile (new predicateVisitor faulty_func_list) cil;
       let oc = open_out pp_file in
       Cil.dumpFile !Cil.printerForMaincil oc "" cil;
       close_out oc;
@@ -589,7 +591,7 @@ module GSA = struct
         | _ -> DoChildren
     end
 
-  class funAssignVisitor (printf, flush, stream) =
+  class funAssignVisitor (printf, flush, stream) faulty_func_list =
     object
       inherit Cil.nopCilVisitor
 
@@ -597,6 +599,8 @@ module GSA = struct
         if
           String.length f.svar.vname >= 6
           && String.equal (String.sub f.svar.vname 0 6) "unival"
+          || List.length faulty_func_list > 0
+             && not (List.mem f.svar.vname faulty_func_list)
         then Cil.SkipChildren
         else (
           List.iter
@@ -627,7 +631,7 @@ module GSA = struct
         | _ -> None)
       globals
 
-  let gsa_gen work_dir pt_file =
+  let gsa_gen ?(faulty_func_list = []) work_dir pt_file =
     let src_dir = Filename.concat work_dir "src" in
     let origin_file_paths =
       Utils.find_file (Filename.remove_extension pt_file ^ ".c") src_dir
@@ -676,7 +680,9 @@ module GSA = struct
             List.fold_left
               (fun vv gv -> VarVerMap.add ("UNIVAL_" ^ gv) 0 vv)
               VarVerMap.empty global_vars;
-          Cil.visitCilFile (new funAssignVisitor (printf, flush, stream)) cil;
+          Cil.visitCilFile
+            (new funAssignVisitor (printf, flush, stream) faulty_func_list)
+            cil;
           Unix.system
             ("cp " ^ origin_file ^ " "
             ^ Filename.remove_extension origin_file
@@ -729,8 +735,20 @@ module GSA = struct
     close_out oc
 
   let run work_dir src_dir =
+    let ff_path = Filename.concat work_dir "faulty_func.txt" in
+    let ic = open_in ff_path in
+    let rec read_lines ic ffs =
+      try
+        let line = input_line ic in
+        read_lines ic (line :: ffs)
+      with End_of_file -> ffs
+    in
+    let faulty_func_list = read_lines ic [] in
     Utils.traverse_pp_file
-      (fun pp_file -> pp_file |> predicate_transform |> gsa_gen work_dir)
+      (fun pp_file ->
+        pp_file
+        |> predicate_transform ~faulty_func_list
+        |> gsa_gen ~faulty_func_list work_dir)
       src_dir;
     Utils.remove_temp_files src_dir;
     print_cm work_dir !causal_map;
