@@ -638,12 +638,14 @@ module GSA = struct
     in
     let ori_file_num = List.length origin_file_paths in
     if ori_file_num = 0 then ()
-    else (
-      (* print_endline (string_of_int ori_file_num);
-         List.iter print_endline origin_file_paths; *)
-      assert (ori_file_num = 1);
-      let origin_file = List.hd origin_file_paths in
-      (* let origin_file = Filename.remove_extension pt_file ^ ".c" in *)
+    else
+      let origin_file_cand = Filename.remove_extension pt_file ^ ".c" in
+      let origin_file =
+        if Sys.file_exists origin_file_cand then origin_file_cand
+        else (
+          assert (ori_file_num = 1);
+          List.hd origin_file_paths)
+      in
       Logging.log "GSA_Gen %s (%s)" origin_file pt_file;
       let cil_opt =
         try Some (Frontc.parse pt_file ()) with Frontc.ParseError _ -> None
@@ -699,7 +701,7 @@ module GSA = struct
             List.mem
               (Filename.basename origin_file)
               [ "gzip.c"; "tif_unix.c"; "http_auth.c"; "main.c"; "version.c" ]
-          then append_constructor work_dir origin_file "output")
+          then append_constructor work_dir origin_file "output"
 
   let print_cm work_dir causal_map =
     let output_file = Filename.concat work_dir "CausalMap.txt" in
