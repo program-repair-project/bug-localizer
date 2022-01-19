@@ -652,6 +652,8 @@ module GSA = struct
           List.hd origin_file_paths)
       in
       Logging.log "GSA_Gen %s (%s)" origin_file pt_file;
+      Cil.resetCIL ();
+      Cil.insertImplicitCasts := false;
       let cil_opt =
         try Some (Frontc.parse pt_file ()) with Frontc.ParseError _ -> None
       in
