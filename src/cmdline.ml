@@ -2,6 +2,8 @@ let work_dir : string option ref = ref None
 
 let out_dir = ref "localizer-out"
 
+let faulty_func = ref false
+
 type instrument = DfSan | GSA | Coverage | Nothing
 
 let instrument = ref Nothing
@@ -59,6 +61,7 @@ let options =
     ( "-instrument",
       Arg.String select_instrument,
       "Specify instrument method (default: Nothing)" );
+    ("-faulty_func", Arg.Set faulty_func, "Set faulty functions");
     ("-skip_compile", Arg.Set skip_compile, "Skip compilation");
     ( "-engine",
       Arg.String select_engine,

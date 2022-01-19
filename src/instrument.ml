@@ -737,15 +737,19 @@ module GSA = struct
     close_out oc
 
   let run work_dir src_dir =
-    let ff_path = Filename.concat work_dir "faulty_func.txt" in
-    let ic = open_in ff_path in
-    let rec read_lines ic ffs =
-      try
-        let line = input_line ic in
-        read_lines ic (line :: ffs)
-      with End_of_file -> ffs
+    let faulty_func_list =
+      if !Cmdline.faulty_func then
+        let ff_path = Filename.concat work_dir "faulty_func.txt" in
+        let ic = open_in ff_path in
+        let rec read_lines ic ffs =
+          try
+            let line = input_line ic in
+            read_lines ic (line :: ffs)
+          with End_of_file -> ffs
+        in
+        read_lines ic []
+      else []
     in
-    let faulty_func_list = read_lines ic [] in
     Utils.traverse_pp_file
       (fun pp_file ->
         pp_file
