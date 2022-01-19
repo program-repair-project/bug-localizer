@@ -595,6 +595,11 @@ module GSA = struct
     object
       inherit Cil.nopCilVisitor
 
+      method! vglob g =
+        let loc = Cil.get_globalLoc g in
+        if String.starts_with ~prefix:"/usr" loc.file then SkipChildren
+        else DoChildren
+
       method! vfunc f =
         if
           String.length f.svar.vname >= 6
@@ -788,6 +793,11 @@ module Coverage = struct
   class instrumentVisitor printf flush stream =
     object
       inherit Cil.nopCilVisitor
+
+      method! vglob g =
+        let loc = Cil.get_globalLoc g in
+        if String.starts_with ~prefix:"/usr" loc.file then SkipChildren
+        else DoChildren
 
       method! vfunc fd =
         if fd.Cil.svar.vname = "bugzoo_ctor" then SkipChildren else DoChildren
