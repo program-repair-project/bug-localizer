@@ -843,67 +843,87 @@ module Coverage = struct
     end
 
   let instrument work_dir pt_file =
-    Cil.resetCIL ();
-    Cil.insertImplicitCasts := false;
-    let origin_file = Filename.remove_extension pt_file ^ ".c" in
-    Logging.log "Instrument Coverage %s (%s)" origin_file pt_file;
-    let cil_opt =
-      try Some (Frontc.parse pt_file ()) with
-      | Frontc.ParseError _ -> None
-      | Stack_overflow ->
-          Logging.log "%s" "Stack overflow";
-          None
-      | e ->
-          Logging.log "%s" (Printexc.to_string e);
-          None
+    let src_dir = Filename.concat work_dir "src" in
+    let origin_file_paths =
+      Utils.find_file (Filename.remove_extension pt_file ^ ".c") src_dir
     in
-    if Option.is_none cil_opt then ()
+    let ori_file_num = List.length origin_file_paths in
+    if ori_file_num = 0 then ()
     else
-      let cil = Option.get cil_opt in
-      (* TODO: clean up *)
-      Cil.visitCilFile (new findTypeVisitor "_IO_FILE") cil;
-      Cil.visitCilFile (new findGVarVisitor "stderr") cil;
-      if Option.is_none !found_type || Option.is_none !found_gvar then ()
+      let origin_file_cand = Filename.remove_extension pt_file ^ ".c" in
+      let origin_file =
+        if Sys.file_exists origin_file_cand then origin_file_cand
+        else (
+          ori_file_num |> string_of_int |> prerr_endline;
+          List.iter prerr_endline origin_file_paths;
+          assert (ori_file_num = 1);
+          List.hd origin_file_paths)
+      in
+      Cil.resetCIL ();
+      Cil.insertImplicitCasts := false;
+      Logging.log "Instrument Coverage %s (%s)" origin_file pt_file;
+      let cil_opt =
+        try Some (Frontc.parse pt_file ()) with
+        | Frontc.ParseError _ -> None
+        | Stack_overflow ->
+            Logging.log "%s" "Stack overflow";
+            None
+        | e ->
+            Logging.log "%s" (Printexc.to_string e);
+            None
+      in
+      if Option.is_none cil_opt then ()
       else
-        let fileptr = Cil.TPtr (Cil.TComp (Option.get !found_type, []), []) in
-        let printf =
-          Cil.findOrCreateFunc cil "fprintf"
-            (Cil.TFun
-               ( Cil.voidType,
-                 Some
-                   [ ("stream", fileptr, []); ("format", Cil.charPtrType, []) ],
-                 true,
-                 [] ))
-        in
-        let flush =
-          Cil.findOrCreateFunc cil "fflush"
-            (Cil.TFun (Cil.voidType, Some [ ("stream", fileptr, []) ], false, []))
-        in
-        let stream = Cil.makeGlobalVar "__inst_stream" fileptr in
-        cil.globals <- Cil.GVarDecl (stream, Cil.locUnknown) :: cil.globals;
-        Cil.visitCilFile (new instrumentVisitor printf flush stream) cil;
-        Unix.system
-          ("cp " ^ origin_file ^ " "
-          ^ Filename.remove_extension origin_file
-          ^ ".origin.c")
-        |> ignore;
-        (if List.mem (Filename.basename origin_file) [ "proc_open.c"; "cast.c" ]
-        then ()
+        let cil = Option.get cil_opt in
+        (* TODO: clean up *)
+        Cil.visitCilFile (new findTypeVisitor "_IO_FILE") cil;
+        Cil.visitCilFile (new findGVarVisitor "stderr") cil;
+        if Option.is_none !found_type || Option.is_none !found_gvar then ()
         else
-          let oc = open_out origin_file in
-          Cil.dumpFile !Cil.printerForMaincil oc "" cil;
-          close_out oc);
-        if
-          List.mem
-            (Unix.realpath origin_file)
-            [
-              "/experiment/src/gzip.c";
-              "/experiment/src/libtiff/tif_unix.c";
-              "/experiment/src/src/http_auth.c";
-              "/experiment/src/main/main.c";
-              "/experiment/src/version.c";
-            ]
-        then append_constructor work_dir origin_file "coverage"
+          let fileptr = Cil.TPtr (Cil.TComp (Option.get !found_type, []), []) in
+          let printf =
+            Cil.findOrCreateFunc cil "fprintf"
+              (Cil.TFun
+                 ( Cil.voidType,
+                   Some
+                     [
+                       ("stream", fileptr, []); ("format", Cil.charPtrType, []);
+                     ],
+                   true,
+                   [] ))
+          in
+          let flush =
+            Cil.findOrCreateFunc cil "fflush"
+              (Cil.TFun
+                 (Cil.voidType, Some [ ("stream", fileptr, []) ], false, []))
+          in
+          let stream = Cil.makeGlobalVar "__inst_stream" fileptr in
+          cil.globals <- Cil.GVarDecl (stream, Cil.locUnknown) :: cil.globals;
+          Cil.visitCilFile (new instrumentVisitor printf flush stream) cil;
+          Unix.system
+            ("cp " ^ origin_file ^ " "
+            ^ Filename.remove_extension origin_file
+            ^ ".origin.c")
+          |> ignore;
+          (if
+           List.mem (Filename.basename origin_file) [ "proc_open.c"; "cast.c" ]
+           || origin_file |> Filename.dirname |> Filename.basename = "Parser"
+          then ()
+          else
+            let oc = open_out origin_file in
+            Cil.dumpFile !Cil.printerForMaincil oc "" cil;
+            close_out oc);
+          if
+            List.mem
+              (Unix.realpath origin_file)
+              [
+                "/experiment/src/gzip.c";
+                "/experiment/src/libtiff/tif_unix.c";
+                "/experiment/src/src/http_auth.c";
+                "/experiment/src/main/main.c";
+                "/experiment/src/version.c";
+              ]
+          then append_constructor work_dir origin_file "coverage"
 
   let run work_dir src_dir =
     Utils.traverse_pp_file (instrument work_dir) src_dir
