@@ -61,3 +61,12 @@ let rec find_file filename root_dir =
         file_path :: paths
       else paths)
     [] files
+
+let find_origin_file_opt pp_file =
+  let ic = open_in pp_file in
+  let line = input_line ic in
+  assert (String.starts_with ~prefix:"# 1" line);
+  let filename = String.split_on_char '"' line |> Fun.flip List.nth 1 in
+  if Filename.is_relative filename then
+    try Some (Unix.realpath filename) with _ -> None
+  else Some filename

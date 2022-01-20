@@ -307,7 +307,7 @@ module GSA = struct
     if Option.is_none cil_opt then pp_file
     else
       let cil = Option.get cil_opt in
-      Cil.visitCilFile (new predicateVisitor faulty_func_list) cil;
+      (* Cil.visitCilFile (new predicateVisitor faulty_func_list) cil; *)
       let oc = open_out pp_file in
       Cil.dumpFile !Cil.printerForMaincil oc "" cil;
       close_out oc;
@@ -636,7 +636,7 @@ module GSA = struct
         | _ -> None)
       globals
 
-  let gsa_gen ?(faulty_func_list = []) work_dir pt_file =
+  let gsa_gen ?(faulty_func_list = []) work_dir origin_file_opt pt_file =
     Cil.resetCIL ();
     Cil.insertImplicitCasts := false;
     let cil_opt =
@@ -645,7 +645,11 @@ module GSA = struct
     if Option.is_none cil_opt then ()
     else
       let cil = Option.get cil_opt in
-      let origin_file = cil.fileName in
+      let origin_file_cand = Filename.remove_extension pt_file ^ ".c" in
+      let origin_file =
+        if Sys.file_exists origin_file_cand then origin_file_cand
+        else Option.get origin_file_opt
+      in
       Logging.log "GSA_Gen %s (%s)" origin_file pt_file;
       Cil.visitCilFile (new findTypeVisitor "_IO_FILE") cil;
       Cil.visitCilFile (new findGVarVisitor "stderr") cil;
@@ -683,7 +687,7 @@ module GSA = struct
         (if List.mem (Filename.basename origin_file) [ "proc_open.c"; "cast.c" ]
         then ()
         else
-          let oc = open_out origin_file in
+          let oc = open_out (Filename.remove_extension origin_file ^ ".c") in
           Cil.dumpFile !Cil.printerForMaincil oc "" cil;
           close_out oc);
         if
@@ -741,9 +745,10 @@ module GSA = struct
     in
     Utils.traverse_pp_file
       (fun pp_file ->
+        let origin_file_opt = Utils.find_origin_file_opt pp_file in
         pp_file
         |> predicate_transform ~faulty_func_list
-        |> gsa_gen ~faulty_func_list work_dir)
+        |> gsa_gen ~faulty_func_list work_dir origin_file_opt)
       src_dir;
     Utils.remove_temp_files src_dir;
     print_cm work_dir !causal_map;
@@ -824,7 +829,7 @@ module Coverage = struct
         Cil.DoChildren
     end
 
-  let instrument work_dir pt_file =
+  let instrument work_dir origin_file_opt pt_file =
     Cil.resetCIL ();
     Cil.insertImplicitCasts := false;
     let cil_opt =
@@ -840,7 +845,11 @@ module Coverage = struct
     if Option.is_none cil_opt then ()
     else
       let cil = Option.get cil_opt in
-      let origin_file = cil.fileName in
+      let origin_file_cand = Filename.remove_extension pt_file ^ ".c" in
+      let origin_file =
+        if Sys.file_exists origin_file_cand then origin_file_cand
+        else Option.get origin_file_opt
+      in
       Logging.log "Instrument Coverage %s (%s)" origin_file pt_file;
       (* TODO: clean up *)
       Cil.visitCilFile (new findTypeVisitor "_IO_FILE") cil;
@@ -890,7 +899,11 @@ module Coverage = struct
         then append_constructor work_dir origin_file "coverage"
 
   let run work_dir src_dir =
-    Utils.traverse_pp_file (instrument work_dir) src_dir
+    Utils.traverse_pp_file
+      (fun pp_file ->
+        let origin_file_opt = Utils.find_origin_file_opt pp_file in
+        instrument work_dir origin_file_opt pp_file)
+      src_dir
 end
 
 let run work_dir =
