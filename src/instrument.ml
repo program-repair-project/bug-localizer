@@ -307,7 +307,7 @@ module GSA = struct
     if Option.is_none cil_opt then pp_file
     else
       let cil = Option.get cil_opt in
-      (* Cil.visitCilFile (new predicateVisitor faulty_func_list) cil; *)
+      Cil.visitCilFile (new predicateVisitor faulty_func_list) cil;
       let oc = open_out pp_file in
       Cil.dumpFile !Cil.printerForMaincil oc "" cil;
       close_out oc;
@@ -878,9 +878,7 @@ module Coverage = struct
           ^ Filename.remove_extension origin_file
           ^ ".origin.c")
         |> ignore;
-        (if
-         List.mem (Filename.basename origin_file) [ "proc_open.c"; "cast.c" ]
-         || origin_file |> Filename.dirname |> Filename.basename = "Parser"
+        (if List.mem (Filename.basename origin_file) [ "proc_open.c"; "cast.c" ]
         then ()
         else
           let oc = open_out origin_file in
