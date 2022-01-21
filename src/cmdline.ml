@@ -55,6 +55,8 @@ let bic = ref false
 
 let no_seg = ref false
 
+let gcov = ref false
+
 let options =
   [
     ("-outdir", Arg.Set_string out_dir, "Output directory");
@@ -78,6 +80,7 @@ let options =
     ( "-no_seg",
       Arg.Set no_seg,
       "Do not instrument fflush after every line if there is no segfault" );
+    ("-gcov", Arg.Set gcov, "Use gcov when extracting coverage");
   ]
 
 let parse_arg x =

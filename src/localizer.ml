@@ -1,5 +1,6 @@
 module F = Format
-module LineCoverage = Coverage.LineCoverage2
+module LineCoverage = Coverage.LineCoverage
+module LineCoverageInst = Coverage.LineCoverage2
 
 module BugLocation = struct
   type t = Cil.location * float * float * float * int
@@ -80,7 +81,10 @@ let dummy_localizer work_dir bug_desc =
     [] coverage
 
 let spec_localizer work_dir bug_desc _ =
-  let coverage = LineCoverage.run work_dir bug_desc in
+  let coverage =
+    if !Cmdline.gcov then LineCoverage.run work_dir bug_desc
+    else LineCoverageInst.run work_dir bug_desc
+  in
   Logging.log "Coverage: %a" LineCoverage.pp coverage;
   copy_src ();
   let table = Hashtbl.create 99999 in
