@@ -44,6 +44,20 @@ let rec traverse_pp_file f root_dir =
           || Filename.check_suffix file_path ".hg"
         then ()
         else traverse_pp_file f file_path
+      else if
+        List.mem (Filename.basename file)
+          [
+            "libldtestplug_la-testplug.i";
+            "sysinfo.i";
+            "sed_sed-compile.i";
+            "sed_sed-regexp.i";
+            "sed_sed-execute.i";
+            "sed_sed-mbcs.i";
+            "sed_sed-sed.i";
+            "sed_sed-utils.i";
+            "dummy-1522.i";
+          ]
+      then ()
       else if Filename.extension file = ".i" then f file_path
       else ())
     files
@@ -55,7 +69,10 @@ let rec find_file filename root_dir =
       let file_path = Filename.concat root_dir file in
       if (Unix.lstat file_path).st_kind = Unix.S_LNK then paths
       else if Sys.is_directory file_path then
-        if Filename.check_suffix file_path "mytest" then paths
+        if
+          Filename.check_suffix file_path "mytest"
+          || Filename.check_suffix file_path ".libs"
+        then paths
         else paths @ find_file filename file_path
       else if Filename.basename file_path = Filename.basename filename then
         file_path :: paths

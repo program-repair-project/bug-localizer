@@ -648,7 +648,11 @@ module GSA = struct
       let origin_file_cand = Filename.remove_extension pt_file ^ ".c" in
       let origin_file =
         if Sys.file_exists origin_file_cand then origin_file_cand
-        else Option.get origin_file_opt
+        else if Option.is_some origin_file_opt then Option.get origin_file_opt
+        else (
+          prerr_endline origin_file_cand;
+          Utils.find_file (Filename.basename origin_file_cand) work_dir
+          |> List.hd)
       in
       Logging.log "GSA_Gen %s (%s)" origin_file pt_file;
       Cil.visitCilFile (new findTypeVisitor "_IO_FILE") cil;
@@ -693,7 +697,18 @@ module GSA = struct
         if
           List.mem
             (Filename.basename origin_file)
-            [ "gzip.c"; "tif_unix.c"; "http_auth.c"; "main.c"; "version.c" ]
+            [
+              "gzip.c";
+              "tif_unix.c";
+              "http_auth.c";
+              "main.c";
+              "version.c";
+              "grep.c";
+              "readelf.c";
+              "core_shntool.c";
+              "sed.c";
+              "tar.c";
+            ]
         then append_constructor work_dir origin_file "output"
 
   let print_cm work_dir causal_map =
