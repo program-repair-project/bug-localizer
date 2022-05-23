@@ -18,7 +18,7 @@ let main () =
   let usageMsg = "Usage: blazer [options] [work dir]" in
   Arg.parse Cmdline.options Cmdline.parse_arg usageMsg;
   match (!Cmdline.work_dir, !Cmdline.test_script) with
-  | Some work_dir, ts when ts != "" ->
+  | Some work_dir, ts when ts <> "" ->
       initialize work_dir;
       Localizer.run work_dir
   | None, _ ->
