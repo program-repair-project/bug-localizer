@@ -17,15 +17,12 @@ let initialize work_dir =
 let main () =
   let usageMsg = "Usage: blazer [options] [work dir]" in
   Arg.parse Cmdline.options Cmdline.parse_arg usageMsg;
-  match (!Cmdline.work_dir, !Cmdline.test_script) with
-  | Some work_dir, ts when ts <> "" ->
+  match !Cmdline.work_dir with
+  | Some work_dir ->
       initialize work_dir;
       Localizer.run work_dir
-  | None, _ ->
+  | None ->
       prerr_endline "Error: No work directory is given";
-      exit 1
-  | _, _ ->
-      prerr_endline "Error: No test script is given";
       exit 1
 
 let _ = main ()
