@@ -2,7 +2,7 @@ MAKE=@make
 DUNE=@dune
 LN=@ln -sf
 RM=@rm
-EXE=localizer
+EXE=blazer
 
 all:
 	$(DUNE) build src/main.exe
@@ -15,6 +15,5 @@ test: all
 	$(DUNE) test
 
 clean:
-	$(MAKE) -C test clean
 	$(DUNE) clean
 	$(RM) -rf $(EXE)

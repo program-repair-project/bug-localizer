@@ -1,6 +1,6 @@
 _build
-localizer
-localizer-out
+blazer
+blazer-out
 sparrow-out
 coverage.xml
 *.gc*
