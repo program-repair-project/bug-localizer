@@ -1,0 +1,6 @@
+[submodule "sparrow"]
+	path = sparrow
+	url = git@github.com:prosyslab/sparrow-incubator.git
+[submodule "bingo"]
+	path = bingo
+	url = git@github.com:prosyslab/bingo.git
