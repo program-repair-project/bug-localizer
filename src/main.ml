@@ -15,14 +15,17 @@ let initialize work_dir =
     Option.map F.formatter_of_out_channel !Logging.log_file
 
 let main () =
-  let usageMsg = "Usage: localizer [options] [work dir]" in
+  let usageMsg = "Usage: blazer [options] [work dir]" in
   Arg.parse Cmdline.options Cmdline.parse_arg usageMsg;
-  match !Cmdline.work_dir with
-  | None ->
-      prerr_endline "Error: No work directory is given";
-      exit 1
-  | Some work_dir ->
+  match (!Cmdline.work_dir, !Cmdline.test_script) with
+  | Some work_dir, ts when ts != "" ->
       initialize work_dir;
       Localizer.run work_dir
+  | None, _ ->
+      prerr_endline "Error: No work directory is given";
+      exit 1
+  | _, _ ->
+      prerr_endline "Error: No test script is given";
+      exit 1
 
 let _ = main ()

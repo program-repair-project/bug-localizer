@@ -1,5 +1,7 @@
 let work_dir : string option ref = ref None
 
+let test_script : string ref = ref ""
+
 let out_dir = ref "localizer-out"
 
 let faulty_func = ref false
@@ -51,7 +53,7 @@ let blacklist = ref []
 
 let gnu_source = ref false
 
-let bic = ref false
+let diff = ref false
 
 let no_seg = ref false
 
@@ -76,11 +78,12 @@ let options =
       Arg.Set gnu_source,
       "Add #define _GNU_SOURCE when instrumentation for some programs (e.g., \
        gimp)" );
-    ("-bic", Arg.Set bic, "Select whether using bic or not");
+    ("-diff", Arg.Set diff, "Differential localization");
     ( "-no_seg",
       Arg.Set no_seg,
       "Do not instrument fflush after every line if there is no segfault" );
     ("-gcov", Arg.Set gcov, "Use gcov when extracting coverage");
+    ("-test_script", Arg.Set_string test_script, "Test script");
   ]
 
 let parse_arg x =

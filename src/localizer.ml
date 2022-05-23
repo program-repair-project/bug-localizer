@@ -463,7 +463,7 @@ let run work_dir =
   Logging.log "Start localization";
   let bug_desc = BugDesc.read work_dir in
   Logging.log "Bug desc: %a" BugDesc.pp bug_desc;
-  let localizer = if !Cmdline.bic then diff_localizer else spec_localizer in
+  let localizer = if !Cmdline.diff then diff_localizer else spec_localizer in
   match !Cmdline.engine with
   | Cmdline.Dummy ->
       "result_dummy.txt" |> (dummy_localizer work_dir bug_desc |> print)
