@@ -80,7 +80,7 @@ let dummy_localizer work_dir bug_desc =
         elem.LineCoverage.coverage locs)
     [] coverage
 
-let spec_localizer work_dir bug_desc _ =
+let spec_localizer work_dir bug_desc localizer_list =
   let coverage =
     if !Cmdline.gcov then LineCoverage.run work_dir bug_desc
     else LineCoverageInst.run work_dir bug_desc
@@ -131,9 +131,14 @@ let spec_localizer work_dir bug_desc _ =
     | Unix.WEXITED n -> failwith ("Error " ^ string_of_int n ^ ": rm bad failed")
     | _ -> failwith "rm bad failed");
 
-  List.map
-    (fun (l, (s1, s2, s3, s4)) -> (l, s1, s2, s3, s4))
-    (List.of_seq (Hashtbl.to_seq table))
+  let spec_coverage =
+    List.map
+      (fun (l, (s1, s2, s3, s4)) -> (l, s1, s2, s3, s4))
+      (List.of_seq (Hashtbl.to_seq table))
+  in
+  match localizer_list with
+  | (v, _) :: _ -> v work_dir bug_desc spec_coverage
+  | _ -> spec_coverage
 
 let prophet_localizer _work_dir _bug_desc locations =
   List.stable_sort
@@ -291,7 +296,7 @@ let diff_localizer work_dir bug_desc localizer_list =
   let table = Hashtbl.create 99999 in
   let table_parent = Hashtbl.create 99999 in
 
-  spec_localizer work_dir bug_desc ()
+  spec_localizer work_dir bug_desc []
   |> List.iter (fun (l, s1, s2, s3, s4) ->
          match Hashtbl.find_opt table l with
          | Some (new_s1, new_s2, new_s3, new_s4) ->
@@ -321,7 +326,7 @@ let diff_localizer work_dir bug_desc localizer_list =
   | _ -> failwith "configure failed");
 
   Unix.chdir "/experiment";
-  spec_localizer work_dir bug_desc ()
+  spec_localizer work_dir bug_desc []
   |> List.iter (fun (l, s1, s2, s3, s4) ->
          match Hashtbl.find_opt table_parent l with
          | Some (new_s1, new_s2, new_s3, new_s4) ->
@@ -469,13 +474,16 @@ let run work_dir =
       "result_dummy.txt" |> (dummy_localizer work_dir bug_desc |> print)
   | Cmdline.Tarantula ->
       localizer work_dir bug_desc [ (tarantula_localizer, "tarantula") ]
-      |> ignore
+      |> Fun.flip print "result_tarantula.txt"
   | Cmdline.Prophet ->
-      localizer work_dir bug_desc [ (prophet_localizer, "prophet") ] |> ignore
+      localizer work_dir bug_desc [ (prophet_localizer, "prophet") ]
+      |> Fun.flip print "result_prophet.txt"
   | Cmdline.Jaccard ->
-      localizer work_dir bug_desc [ (jaccard_localizer, "jaccard") ] |> ignore
+      localizer work_dir bug_desc [ (jaccard_localizer, "jaccard") ]
+      |> Fun.flip print "result_jaccard.txt"
   | Cmdline.Ochiai ->
-      localizer work_dir bug_desc [ (ochiai_localizer, "ochiai") ] |> ignore
+      localizer work_dir bug_desc [ (ochiai_localizer, "ochiai") ]
+      |> Fun.flip print "result_ochiai.txt"
   | Cmdline.UniVal -> unival_localizer work_dir bug_desc
   | Cmdline.All ->
       localizer work_dir bug_desc
