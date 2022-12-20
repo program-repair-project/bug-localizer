@@ -89,33 +89,28 @@ let spec_localizer work_dir bug_desc localizer_list =
   copy_src ();
   let table = Hashtbl.create 99999 in
   List.fold_left
-    (fun locs (elem : LineCoverage.elem) ->
+    (fun locs (e : LineCoverage.elem) ->
+      (* print_endline (e.test ^ ", " ^ (e.test_result |> string_of_int)); *)
       let regexp_pos = Str.regexp "p.*" in
       Coverage.StrMap.fold
         (fun file lines locs ->
           let new_locs =
-            if Str.string_match regexp_pos elem.LineCoverage.test 0 then
+            if Str.string_match regexp_pos e.LineCoverage.test 0 then
               List.rev_map
-                (fun line -> ({ Cil.file; line; byte = 0 }, 0.0, 1.0, 0.0, 0))
+                (fun line ->
+                  ({ Cil.file; line; byte = 0 }, 0.0, 1.0, 0.0, e.test_result))
                 lines
             else
               List.rev_map
                 (fun line ->
-                  ( { Cil.file; line; byte = 0 },
-                    1.0,
-                    0.0,
-                    0.0,
-                    (*List.find
-                        (fun (x, y) -> x = line)
-                        elem.LineCoverage.linehistory
-                      |> snd *)
-                    0 ))
+                  ({ Cil.file; line; byte = 0 }, 1.0, 0.0, 0.0, e.test_result))
                 lines
           in
           List.rev_append new_locs locs)
-        elem.LineCoverage.coverage locs)
+        e.LineCoverage.coverage locs)
     [] coverage
   |> List.iter (fun (l, s1, s2, s3, s4) ->
+         (* if s2 = 1.0 then print_endline (s4 |> string_of_int); *)
          match Hashtbl.find_opt table l with
          | Some (new_s1, new_s2, new_s3, new_s4) ->
              Hashtbl.replace table l
@@ -133,7 +128,9 @@ let spec_localizer work_dir bug_desc localizer_list =
 
   let spec_coverage =
     List.map
-      (fun (l, (s1, s2, s3, s4)) -> (l, s1, s2, s3, s4))
+      (fun (l, (s1, s2, s3, s4)) ->
+        (* print_endline (s4 |> string_of_int); *)
+        (l, s1, s2, s3, s4))
       (List.of_seq (Hashtbl.to_seq table))
   in
   match localizer_list with
@@ -166,7 +163,7 @@ let tarantula_localizer _work_dir bug_desc locations =
   in
   let taran_loc =
     List.map
-      (fun (l, s1, s2, _, _) ->
+      (fun (l, s1, s2, _, s4) ->
         let nep = s2 in
         let nnp = float_of_int pos_num -. s2 in
         let nef = s1 in
@@ -175,7 +172,7 @@ let tarantula_localizer _work_dir bug_desc locations =
         let denom1 = nef /. (nef +. nnf) in
         let denom2 = nep /. (nep +. nnp) in
         let score = numer /. (denom1 +. denom2) in
-        (l, s1, s2, score, 0))
+        (l, s1, s2, score, s4))
       locations
   in
   List.stable_sort
@@ -201,7 +198,8 @@ let ochiai_localizer _work_dir bug_desc locations =
   in
   let ochiai_loc =
     List.map
-      (fun (l, s1, s2, _, _) ->
+      (fun (l, s1, s2, _, s4) ->
+        (* print_endline (s4 |> string_of_int); *)
         let nep = s2 in
         let _nnp = float_of_int pos_num -. s2 in
         let nef = s1 in
@@ -210,7 +208,7 @@ let ochiai_localizer _work_dir bug_desc locations =
         let sub_denom2 = nef +. nep in
         let denom = sqrt (sub_denom1 *. sub_denom2) in
         let score = nef /. denom in
-        (l, s1, s2, score, 0))
+        (l, s1, s2, score, s4))
       locations
   in
   List.stable_sort
@@ -236,14 +234,14 @@ let jaccard_localizer _work_dir bug_desc locations =
   in
   let jaccard_loc =
     List.map
-      (fun (l, s1, s2, _, _) ->
+      (fun (l, s1, s2, _, s4) ->
         let nep = s2 in
         let _nnp = float_of_int pos_num -. s2 in
         let nef = s1 in
         let nnf = float_of_int neg_num -. s1 in
         let denom = nef +. nnf +. nep in
         let score = nef /. denom in
-        (l, s1, s2, score, 0))
+        (l, s1, s2, score, s4))
       locations
   in
   List.stable_sort
@@ -464,6 +462,66 @@ let coverage work_dir bug_desc =
   Unix.chdir scenario.Scenario.work_dir;
   Scenario.compile scenario bug_desc.BugDesc.compiler_type
 
+let check_signal work_dir bug_desc =
+  let scenario = Scenario.init ~stdio_only:true work_dir in
+  Unix.chdir scenario.Scenario.work_dir;
+  Scenario.compile scenario bug_desc.BugDesc.compiler_type;
+  Instrument.run scenario.work_dir;
+  Unix.chdir scenario.Scenario.work_dir
+(* Scenario.compile scenario bug_desc.BugDesc.compiler_type *)
+
+let value_print work_dir bug_desc =
+  let scenario = Scenario.init ~stdio_only:true work_dir in
+  Unix.chdir scenario.Scenario.work_dir;
+  Scenario.compile scenario bug_desc.BugDesc.compiler_type;
+  Instrument.run scenario.work_dir;
+  Unix.chdir scenario.Scenario.work_dir;
+  Scenario.compile scenario bug_desc.BugDesc.compiler_type;
+  Logging.log "Start printing value";
+  (* let _print_path = Filename.concat scenario.work_dir "output.txt" in *)
+  List.iter
+    (fun test ->
+      let regexp_pos = Str.regexp "p.*" in
+      if not (Str.string_match regexp_pos test 0) then (
+        Unix.chdir scenario.Scenario.work_dir;
+        Scenario.run_test scenario.test_script test |> ignore;
+        Unix.system
+          ("mv /experiment/output.txt /experiment/output_" ^ test ^ ".txt")
+        |> ignore))
+    bug_desc.BugDesc.test_cases
+
+let assert_inject work_dir bug_desc =
+  let scenario = Scenario.init ~stdio_only:true work_dir in
+  Unix.chdir scenario.Scenario.work_dir;
+  Scenario.compile scenario bug_desc.BugDesc.compiler_type;
+  (* Instrument.run scenario.work_dir;
+     Unix.chdir scenario.Scenario.work_dir;
+     Scenario.compile scenario bug_desc.BugDesc.compiler_type; *)
+  Unix.chdir scenario.Scenario.work_dir;
+  spec_localizer work_dir bug_desc [ (ochiai_localizer, "ochiai") ]
+  |> Fun.flip print "result_ochiai_assert.txt"
+
+let assume_inject work_dir bug_desc =
+  let scenario = Scenario.init ~stdio_only:true work_dir in
+  Unix.chdir scenario.Scenario.work_dir;
+  Scenario.compile scenario bug_desc.BugDesc.compiler_type;
+  (* Instrument.run scenario.work_dir;
+     Unix.chdir scenario.Scenario.work_dir;
+     Scenario.compile scenario bug_desc.BugDesc.compiler_type; *)
+  Unix.system
+    "mv /experiment/src/sapi/cli/php /experiment/src/sapi/cli/php-test"
+  |> ignore;
+  Unix.system
+    "sed -i \"s/cmd = \\[\\\"timeout\\\", \\\"60\\\", \
+     \\\"sapi\\\\/cli\\\\/php\\\", test\\]/cmd = \\[\\\"timeout\\\", \
+     \\\"60\\\", \\\"sapi\\\\/cli\\\\/php-test\\\", \\\"run-tests.php\\\", \
+     \\\"-p\\\", \\\"sapi\\\\/cli\\\\/php\\\", test\\]/g\" \
+     /experiment/tester.py"
+  |> ignore;
+  Unix.chdir scenario.Scenario.work_dir;
+  spec_localizer work_dir bug_desc [ (ochiai_localizer, "ochiai") ]
+  |> Fun.flip print "result_ochiai_assume.txt"
+
 let run work_dir =
   Logging.log "Start localization";
   let bug_desc = BugDesc.read work_dir in
@@ -495,3 +553,7 @@ let run work_dir =
         ]
       |> ignore
   | Cmdline.Coverage -> coverage work_dir bug_desc
+  | Cmdline.ValuePrint -> value_print work_dir bug_desc
+  | Cmdline.AssertInject -> assert_inject work_dir bug_desc
+  | Cmdline.AssumeInject -> assume_inject work_dir bug_desc
+  | Cmdline.Filter -> check_signal work_dir bug_desc

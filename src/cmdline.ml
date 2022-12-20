@@ -1,18 +1,26 @@
 let work_dir : string option ref = ref None
-
 let out_dir = ref "localizer-out"
-
 let faulty_func = ref false
 
-type instrument = DfSan | GSA | Coverage | Nothing
+type instrument =
+  | DfSan
+  | GSA
+  | Coverage
+  | ValuePrint
+  | AssertInject
+  | AssumeInject
+  | Filter
+  | Nothing
 
 let instrument = ref Nothing
+let inject_file = ref ""
+let inject_line = ref 0
 
 let select_instrument s =
   match s with
   | "dfsan" -> instrument := DfSan
   | "gsa" -> instrument := GSA
-  | "coverage" -> instrument := Coverage
+  | "coverage" | "value_print" | "inject" -> instrument := Coverage
   | _ -> failwith "Unknown instrument"
 
 let skip_compile = ref false
@@ -25,36 +33,59 @@ type engine =
   | Dummy
   | UniVal
   | Coverage
+  | ValuePrint
+  | AssertInject
+  | AssumeInject
+  | Filter
   | All
 
 let engine = ref Dummy
 
 let select_engine s =
   match s with
-  | "tarantula" -> engine := Tarantula
-  | "prophet" -> engine := Prophet
-  | "jaccard" -> engine := Jaccard
-  | "ochiai" -> engine := Ochiai
-  | "dummy" -> engine := Dummy
+  | "tarantula" ->
+      engine := Tarantula;
+      instrument := Coverage
+  | "prophet" ->
+      engine := Prophet;
+      instrument := Coverage
+  | "jaccard" ->
+      engine := Jaccard;
+      instrument := Coverage
+  | "ochiai" ->
+      engine := Ochiai;
+      instrument := Coverage
+  | "dummy" ->
+      engine := Dummy;
+      instrument := Coverage
   | "unival" ->
       engine := UniVal;
       instrument := GSA
   | "coverage" ->
       engine := Coverage;
       instrument := Coverage
-  | "all" -> engine := All
+  | "value_print" ->
+      engine := ValuePrint;
+      instrument := ValuePrint
+  | "assert" ->
+      engine := AssertInject;
+      instrument := AssertInject
+  | "assume" ->
+      engine := AssumeInject;
+      instrument := AssumeInject
+  | "filter" ->
+      engine := Filter;
+      instrument := Filter
+  | "all" ->
+      engine := All;
+      instrument := Coverage
   | _ -> failwith "Unknown engine"
 
 let jobs = ref 0 (* i.e., #cpus *)
-
 let blacklist = ref []
-
 let gnu_source = ref false
-
 let bic = ref false
-
 let no_seg = ref false
-
 let gcov = ref false
 
 let options =
@@ -81,6 +112,8 @@ let options =
       Arg.Set no_seg,
       "Do not instrument fflush after every line if there is no segfault" );
     ("-gcov", Arg.Set gcov, "Use gcov when extracting coverage");
+    ("-inject_file", Arg.Set_string inject_file, "Target file for injection");
+    ("-inject_line", Arg.Set_int inject_line, "Target line for injection");
   ]
 
 let parse_arg x =

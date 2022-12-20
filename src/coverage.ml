@@ -4,19 +4,14 @@ module StrMap = Map.Make (String)
 (* Line-level coverage using gcov *)
 module LineCoverage = struct
   (* reference: https://github.com/squaresLab/BugZoo/blob/a87f03b2e33c2097c21c0175e613f4e95d9825eb/bugzoo/core/coverage.py#L106 *)
-  type elem = {
-    test : string;
-    coverage : int list StrMap.t;
-    linehistory : (int * int) list;
-  }
-
+  type elem = { test : string; coverage : int list StrMap.t; test_result : int }
   type t = elem list
 
   let empty = []
 
   type tree = E of Xmlm.tag * tree list | D of string
 
-  let elem_of test = { test; coverage = StrMap.empty; linehistory = [] }
+  let elem_of test = { test; coverage = StrMap.empty; test_result = 0 }
 
   let read_xml file =
     let ic = open_in file in
@@ -112,7 +107,7 @@ module LineCoverage = struct
     Logging.log "Start test";
     List.fold_left
       (fun coverage test ->
-        Scenario.run_test scenario.test_script test;
+        Scenario.run_test scenario.test_script test |> ignore;
         compute_coverage scenario.coverage_data;
         update_coverage scenario.coverage_data test coverage)
       empty bug_desc.BugDesc.test_cases
@@ -132,13 +127,13 @@ module LineCoverage2 = struct
   type elem_internal = {
     test : string;
     coverage_set : IntSet.t StrMap.t;
-    linehistory : (int * int) list;
+    test_result : int;
   }
 
-  let elem_of test = { test; coverage_set = StrMap.empty; linehistory = [] }
+  let elem_of test = { test; coverage_set = StrMap.empty; test_result = 0 }
 
-  let elem_of_internal { test; coverage_set; linehistory } =
-    { test; coverage = StrMap.map IntSet.elements coverage_set; linehistory }
+  let elem_of_internal { test; coverage_set; test_result } =
+    { test; coverage = StrMap.map IntSet.elements coverage_set; test_result }
 
   let compute_coverage coverage_data =
     if Sys.file_exists coverage_data then Unix.unlink coverage_data;
@@ -158,7 +153,7 @@ module LineCoverage2 = struct
     close_in ch;
     s
 
-  let update_coverage coverage_data test coverage =
+  let update_coverage coverage_data test test_result coverage =
     let data =
       try read_whole_file coverage_data |> String.split_on_char '\n'
       with Sys_error _ -> []
@@ -181,12 +176,7 @@ module LineCoverage2 = struct
                       | Some s -> Some (IntSet.add lineno s)
                       | None -> Some (IntSet.singleton lineno))
                     elem.coverage_set;
-                linehistory =
-                  []
-                  (*( lineno,
-                      if elem.linehistory = [] then 0
-                      else snd (List.hd elem.linehistory) + 1 )
-                    :: elem.linehistory;*);
+                test_result;
               }
             with _ -> elem)
         (elem_of test) data
@@ -199,7 +189,7 @@ module LineCoverage2 = struct
     (* compile to extract *.i *)
     Scenario.compile scenario bug_desc.BugDesc.compiler_type;
     let src_dir = Filename.concat scenario.work_dir "src" in
-    Instrument.Coverage.run scenario.work_dir src_dir;
+    Instrument.run scenario.work_dir;
     Unix.chdir scenario.Scenario.work_dir;
     (* compile instrumented files *)
     Scenario.compile scenario bug_desc.BugDesc.compiler_type;
@@ -208,21 +198,41 @@ module LineCoverage2 = struct
     let _cov_path = Filename.concat scenario.work_dir "coverage.txt" in
     List.fold_left
       (fun coverage test ->
-        (*let regexp_pos = Str.regexp "p.*" in
-            if Str.string_match regexp_pos test 0 then coverage
-          else*)
-        Scenario.run_test scenario.test_script test;
-        Unix.system
-          "cat /experiment/coverage_data/tmp/*.txt > \
-           /experiment/coverage_data/coverage.txt"
-        |> ignore;
-        Unix.system "rm -f /experiment/coverage_data/tmp/*.txt" |> ignore;
-        let cur_cov_path =
-          (* Filename.concat "coverage_data" ("coverage." ^ test ^ ".txt") *)
-          Filename.concat "coverage_data" "coverage.txt"
-        in
-        (*Unix.system ("mv " ^ cov_path ^ " " ^ cur_cov_path) |> ignore;*)
-        update_coverage cur_cov_path test coverage)
+        let regexp_pos = Str.regexp "p.*" in
+        let regexp_hundred = Str.regexp ".*00" in
+        if
+          (* Str.string_match regexp_pos test 0
+             && not (((String.sub test 1 (String.length test -1) |> int_of_string) mod 100) = 0)
+             || *)
+          (!Cmdline.instrument = Cmdline.AssertInject
+          || !Cmdline.instrument = Cmdline.ValuePrint)
+          && Str.string_match regexp_pos test 0
+          (* Str.string_match regexp_pos test 0
+             && not
+                  (List.mem
+                     (String.sub test 1 (String.length test - 1) |> int_of_string)
+                     (* [2121; 2122; 2123; 2124; 2125; 2129; 2130; 2136; 2138; 2141; 2146; 2149; 2150; 2153; 2154; 2155] *)
+                     [ 1885; 1889; 1892; 1898; 1924 ]) *)
+        then coverage
+        else
+          let test_result = Scenario.run_test scenario.test_script test in
+          Unix.system
+            "cat /experiment/coverage_data/tmp/*.txt > \
+             /experiment/coverage_data/coverage.txt"
+          |> ignore;
+          Unix.system "rm -f /experiment/coverage_data/tmp/*.txt" |> ignore;
+          let cur_cov_path =
+            (* Filename.concat "coverage_data" ("coverage." ^ test ^ ".txt") *)
+            Filename.concat "coverage_data" "coverage.txt"
+          in
+          (*Unix.system ("mv " ^ cov_path ^ " " ^ cur_cov_path) |> ignore;*)
+          let test_coverage =
+            update_coverage cur_cov_path test test_result coverage
+          in
+          let test_data = test_coverage |> List.hd in
+          (* print_endline
+             (test_data.test ^ ", " ^ (test_data.test_result |> string_of_int)); *)
+          test_coverage)
       empty bug_desc.BugDesc.test_cases
     |> List.map elem_of_internal
 end

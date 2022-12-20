@@ -109,6 +109,16 @@ let configure_and_make () =
   make_clean ();
   make_distclean ();
   configure ();
+  if
+    !Cmdline.instrument = Cmdline.AssertInject
+    || !Cmdline.instrument = Cmdline.AssumeInject
+  then
+    Unix.system
+      "sed -i \"s/all_targets = \\$(OVERALL_TARGET) \\$(PHP_MODULES) \
+       \\$(PHP_ZEND_EX) \\$(PHP_BINARIES) pharcmd/all_targets = \
+       \\$(OVERALL_TARGET) \\$(PHP_MODULES) \\$(PHP_ZEND_EX) \
+       \\$(PHP_BINARIES)/g\" /experiment/src/Makefile"
+    |> ignore;
   make ()
 
 let compile scenario compiler_type =
@@ -121,4 +131,9 @@ let run_test test_script name =
   Unix.create_process test_script [| test_script; name |] Unix.stdin Unix.stdout
     Unix.stderr
   |> ignore;
-  Unix.wait () |> ignore
+  let regexp_pos = Str.regexp "p.*" in
+  if Str.string_match regexp_pos name 0 then
+    match Unix.wait () |> snd with Unix.WEXITED 0 -> 1 | _ -> 0
+  else (
+    Unix.wait () |> ignore;
+    0)
