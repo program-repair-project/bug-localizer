@@ -154,22 +154,26 @@ module LineCoverage2 = struct
     s
 
   let update_coverage coverage_data test test_result coverage =
-    let data =
-      try read_whole_file coverage_data |> String.split_on_char '\n'
-      with Sys_error _ -> []
+    (* let data =
+         try read_whole_file coverage_data |> String.split_on_char '\n'
+         with Sys_error _ -> []
+       in *)
+    let cov_file = open_in coverage_data in
+    let try_read () =
+      try Some (input_line cov_file) with End_of_file -> None
     in
-    let elem =
-      List.fold_left
-        (fun elem line ->
-          if List.mem line [ ""; "__START_NEW_EXECUTION__" ] then elem
+    let rec update_elem elem =
+      match try_read () with
+      | Some line ->
+          (if List.mem line [ ""; "__START_NEW_EXECUTION__" ] then elem
           else
             let lst = String.split_on_char ':' line in
             try
               let filename, lineno =
-                (List.nth lst 0, List.nth lst 1 |> int_of_string)
+                (lst |> List.hd, lst |> List.tl |> List.hd |> int_of_string)
               in
               {
-                elem with
+                test;
                 coverage_set =
                   StrMap.update filename
                     (function
@@ -179,8 +183,35 @@ module LineCoverage2 = struct
                 test_result;
               }
             with _ -> elem)
-        (elem_of test) data
+          |> update_elem
+      | None ->
+          close_in cov_file;
+          elem
     in
+    (* let elem =
+         List.fold_left
+           (fun elem line ->
+             if List.mem line [ ""; "__START_NEW_EXECUTION__" ] then elem
+             else
+               let lst = String.split_on_char ':' line in
+               try
+                 let filename, lineno =
+                   (List.nth lst 0, List.nth lst 1 |> int_of_string)
+                 in
+                 {
+                   elem with
+                   coverage_set =
+                     StrMap.update filename
+                       (function
+                         | Some s -> Some (IntSet.add lineno s)
+                         | None -> Some (IntSet.singleton lineno))
+                       elem.coverage_set;
+                   test_result;
+                 }
+               with _ -> elem)
+           (elem_of test) data
+       in *)
+    let elem = update_elem (elem_of test) in
     elem :: coverage
 
   let run work_dir bug_desc =
@@ -202,7 +233,10 @@ module LineCoverage2 = struct
         let regexp_hundred = Str.regexp ".*00" in
         if
           (* Str.string_match regexp_pos test 0
-             && not (((String.sub test 1 (String.length test -1) |> int_of_string) mod 100) = 0)
+             && not
+                  ((String.sub test 1 (String.length test - 1) |> int_of_string)
+                   mod 100
+                  = 0)
              || *)
           (!Cmdline.instrument = Cmdline.AssertInject
           || !Cmdline.instrument = Cmdline.ValuePrint)
@@ -217,8 +251,8 @@ module LineCoverage2 = struct
         else
           let test_result = Scenario.run_test scenario.test_script test in
           Unix.system
-            "cat /experiment/coverage_data/tmp/*.txt > \
-             /experiment/coverage_data/coverage.txt"
+            "cat /experiment/coverage_data/tmp/*.txt | awk '!seen[$0]++' | tr \
+             -d '\\000' > /experiment/coverage_data/coverage.txt"
           |> ignore;
           Unix.system "rm -f /experiment/coverage_data/tmp/*.txt" |> ignore;
           let cur_cov_path =

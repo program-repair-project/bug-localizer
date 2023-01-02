@@ -86,6 +86,7 @@ let blacklist = ref []
 let gnu_source = ref false
 let bic = ref false
 let no_seg = ref false
+let mmap = ref false
 let gcov = ref false
 
 let options =
@@ -114,6 +115,9 @@ let options =
     ("-gcov", Arg.Set gcov, "Use gcov when extracting coverage");
     ("-inject_file", Arg.Set_string inject_file, "Target file for injection");
     ("-inject_line", Arg.Set_int inject_line, "Target line for injection");
+    ( "-mmap",
+      Arg.Set mmap,
+      "Using mmap to print coverage" );
   ]
 
 let parse_arg x =

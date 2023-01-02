@@ -109,16 +109,12 @@ let configure_and_make () =
   make_clean ();
   make_distclean ();
   configure ();
-  if
-    !Cmdline.instrument = Cmdline.AssertInject
-    || !Cmdline.instrument = Cmdline.AssumeInject
-  then
-    Unix.system
-      "sed -i \"s/all_targets = \\$(OVERALL_TARGET) \\$(PHP_MODULES) \
-       \\$(PHP_ZEND_EX) \\$(PHP_BINARIES) pharcmd/all_targets = \
-       \\$(OVERALL_TARGET) \\$(PHP_MODULES) \\$(PHP_ZEND_EX) \
-       \\$(PHP_BINARIES)/g\" /experiment/src/Makefile"
-    |> ignore;
+  Unix.system
+    "sed -i \"s/all_targets = \\$(OVERALL_TARGET) \\$(PHP_MODULES) \
+     \\$(PHP_ZEND_EX) \\$(PHP_BINARIES) pharcmd/all_targets = \
+     \\$(OVERALL_TARGET) \\$(PHP_MODULES) \\$(PHP_ZEND_EX) \
+     \\$(PHP_BINARIES)/g\" /experiment/src/Makefile"
+  |> ignore;
   make ()
 
 let compile scenario compiler_type =
