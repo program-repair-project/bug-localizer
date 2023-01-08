@@ -194,12 +194,12 @@ let preamble src_dir mode =
           "  sprintf(filename, \"" ^ src_dir ^ "/coverage_data" ^ "/tmp/" ^ mode
           ^ "-%d.txt\", pid);\n";
           "  __inst_stream = fopen(filename, \"a\");\n";
-          "  __inst_stream_fd = open(filename, 66);\n";
-          "  ftruncate(__inst_stream_fd, 199999999);\n";
-          (* "  fprintf(__inst_stream, \"__START_NEW_EXECUTION__\\n\");\n";
-             "  fflush(__inst_stream);\n"; *)
-          "  __inst_mmap = (char *)mmap((void *)0, 1999999999, 3, 1, \
-           __inst_stream_fd, 0);\n";
+          (if !Cmdline.mmap then
+           "  __inst_stream_fd = open(filename, 66);\n"
+           ^ "  ftruncate(__inst_stream_fd, 1999999);\n"
+           ^ "  __inst_mmap = (char *)mmap((void *)0, 1999999, 3, 1, \
+              __inst_stream_fd, 0);\n"
+          else "");
         ])
     @ [
         "}\n";
@@ -207,6 +207,12 @@ let preamble src_dir mode =
         "static void coverage_dtor (void) {\n";
         "  fclose(__inst_stream);\n";
         "}\n";
+        (if !Cmdline.mmap then
+         "void append_coverage (int check_var, const char *cov_data, int \
+          cov_data_len) {\n" ^ "  if (!check_var) {\n"
+         ^ "    strcpy(__inst_mmap, cov_data);\n"
+         ^ "    __inst_mmap += cov_data_len;\n" ^ "  }\n" ^ "}\n"
+        else "");
         "/* COVERAGE :: INSTRUMENTATION :: END */\n";
       ])
 
@@ -780,6 +786,10 @@ module GSA = struct
 end
 
 module Coverage = struct
+  module VarSet = Set.Make (String)
+
+  (* let glob_var_whole_set = ref VarSet.empty *)
+
   let location_of_instr = function
     | Cil.Set (_, _, l) | Cil.Call (_, _, _, l) | Cil.Asm (_, _, _, _, _, l) ->
         l
@@ -844,8 +854,28 @@ module Coverage = struct
         ],
         loc )
 
+  let append_coverage_of append_coverage check_var loc =
+    Cil.Call
+      ( None,
+        Cil.Lval (Cil.Var append_coverage, Cil.NoOffset),
+        [
+          Cil.Lval (Cil.Var check_var, Cil.NoOffset);
+          Cil.Const
+            (Cil.CStr
+               (loc.Cil.file ^ ":" ^ (loc.Cil.line |> string_of_int) ^ "\n"));
+          Cil.Const
+            (Cil.CInt64
+               ( (loc.Cil.file |> String.length)
+                 + (loc.Cil.line |> string_of_int |> String.length)
+                 + 2
+                 |> Int64.of_int,
+                 Cil.IInt,
+                 None ));
+        ],
+        loc )
+
   class instrumentVisitor printf flush stream strcpy mmap mmap_size stream_fd
-    ftruncate =
+    ftruncate append_coverage glob_check_vars =
     object
       inherit Cil.nopCilVisitor
 
@@ -858,18 +888,80 @@ module Coverage = struct
         if fd.Cil.svar.vname = "bugzoo_ctor" then SkipChildren else DoChildren
 
       method! vblock blk =
-        let bstmts =
-          List.fold_left
-            (fun bstmts s ->
-              match s.Cil.skind with
-              | Cil.Instr insts ->
-                  let new_insts =
-                    List.fold_left
-                      (fun is i ->
-                        let loc = Cil.get_instrLoc i in
+        (* let bstmts =
+             List.fold_left
+               (fun bstmts s ->
+                 match s.Cil.skind with
+                 | Cil.Instr insts ->
+                     (* let new_insts =
+                          List.fold_left
+                            (fun is i ->
+                              let loc = Cil.get_instrLoc i in
+                              let check_var_name =
+                                "__"
+                                ^ (loc.file
+                                  |> String.map (fun c ->
+                                         if c = '/' || c = '.' then '_' else c))
+                                ^ "_"
+                                ^ (loc.line |> string_of_int)
+                              in
+                              let check_var =
+                                Cil.makeGlobalVar check_var_name Cil.intType
+                              in
+                              if !Cmdline.mmap then
+                                glob_check_vars :=
+                                  VarSet.add check_var_name !glob_check_vars;
+                              let call =
+                                if !Cmdline.mmap then
+                                  append_coverage_of append_coverage check_var loc
+                                else printf_of printf stream loc
+                              in
+                              let mmap_inc =
+                                Cil.Set
+                                  ( (Cil.Var mmap, Cil.NoOffset),
+                                    Cil.BinOp
+                                      ( Cil.PlusPI,
+                                        Cil.Lval (Cil.Var mmap, Cil.NoOffset),
+                                        Cil.Const
+                                          (Cil.CInt64
+                                             ( (loc.Cil.file |> String.length)
+                                               + (loc.Cil.line |> string_of_int
+                                                |> String.length)
+                                               + 2
+                                               |> Int64.of_int,
+                                               Cil.IInt,
+                                               None )),
+                                        Cil.intType ),
+                                    loc )
+                              in
+                              let ftruncate_call =
+                                ftruncate_of ftruncate stream_fd mmap_size loc
+                              in
+                              let var_used =
+                                Cil.Set
+                                  ((Cil.Var check_var, Cil.NoOffset), Cil.one, loc)
+                              in
+                              if (not !Cmdline.no_seg) && !Cmdline.mmap then
+                                i :: (*mmap_inc :: *) var_used :: call
+                                :: (*ftruncate_call ::*) is
+                              else if (not !Cmdline.no_seg) && not !Cmdline.mmap then
+                                let flush = flush_of flush stream loc in
+                                i :: flush :: call :: is
+                              else if !Cmdline.mmap then
+                                i :: (*mmap_inc :: *) var_used :: call
+                                :: (*ftruncate_call ::*) is
+                              else i :: call :: is)
+                            [] insts
+                          |> List.rev
+                        in
+                        s.skind <- Cil.Instr new_insts; *)
+                     s :: bstmts
+                 | _ ->
+                     (* let loc = Cil.get_stmtLoc s.Cil.skind in
                         let call =
-                          if !Cmdline.mmap then strcpy_of strcpy mmap loc
-                          else printf_of printf stream loc
+                          if !Cmdline.mmap then
+                            strcpy_of strcpy mmap loc |> Cil.mkStmtOneInstr
+                          else printf_of printf stream loc |> Cil.mkStmtOneInstr
                         in
                         let mmap_inc =
                           Cil.Set
@@ -888,68 +980,148 @@ module Coverage = struct
                                          None )),
                                   Cil.intType ),
                               loc )
+                          |> Cil.mkStmtOneInstr
                         in
                         let ftruncate_call =
                           ftruncate_of ftruncate stream_fd mmap_size loc
+                          |> Cil.mkStmtOneInstr
+                        in
+                        let empty_block = [ Cil.mkEmptyStmt () ] |> Cil.mkBlock in
+                        let call =
+                          Cil.If
+                            ( Cil.Lval (Cil.Var test_var, Cil.NoOffset),
+                              [ call; mmap_inc ] |> Cil.mkBlock,
+                              empty_block,
+                              loc )
+                          |> Cil.mkStmt
                         in
                         if (not !Cmdline.no_seg) && !Cmdline.mmap then
-                          i :: mmap_inc :: call :: (*ftruncate_call ::*) is
+                          s
+                          :: (*call ::*)
+                             (*ftruncate_call ::*)
+                             bstmts
                         else if (not !Cmdline.no_seg) && not !Cmdline.mmap then
-                          let flush = flush_of flush stream loc in
-                          i :: flush :: call :: is
+                          let flush =
+                            flush_of flush stream loc |> Cil.mkStmtOneInstr
+                          in
+                          s :: flush :: call :: bstmts
                         else if !Cmdline.mmap then
-                          i :: mmap_inc :: call :: (*ftruncate_call ::*) is
-                        else i :: call :: is)
-                      [] insts
-                    |> List.rev
-                  in
-                  s.skind <- Cil.Instr new_insts;
-                  s :: bstmts
-              | _ ->
-                  let loc = Cil.get_stmtLoc s.Cil.skind in
-                  let call =
-                    if !Cmdline.mmap then
-                      strcpy_of strcpy mmap loc |> Cil.mkStmtOneInstr
-                    else printf_of printf stream loc |> Cil.mkStmtOneInstr
-                  in
-                  let mmap_inc =
-                    Cil.Set
-                      ( (Cil.Var mmap, Cil.NoOffset),
-                        Cil.BinOp
-                          ( Cil.PlusPI,
-                            Cil.Lval (Cil.Var mmap, Cil.NoOffset),
-                            Cil.Const
-                              (Cil.CInt64
-                                 ( (loc.Cil.file |> String.length)
-                                   + (loc.Cil.line |> string_of_int
-                                    |> String.length)
-                                   + 2
-                                   |> Int64.of_int,
-                                   Cil.IInt,
-                                   None )),
-                            Cil.intType ),
-                        loc )
-                    |> Cil.mkStmtOneInstr
-                  in
-                  let ftruncate_call =
-                    ftruncate_of ftruncate stream_fd mmap_size loc
-                    |> Cil.mkStmtOneInstr
-                  in
-                  if (not !Cmdline.no_seg) && !Cmdline.mmap then
-                    s :: mmap_inc :: call :: (*ftruncate_call ::*) bstmts
-                  else if (not !Cmdline.no_seg) && not !Cmdline.mmap then
-                    let flush =
-                      flush_of flush stream loc |> Cil.mkStmtOneInstr
-                    in
-                    s :: flush :: call :: bstmts
-                  else if !Cmdline.mmap then
-                    s :: mmap_inc :: call :: (*ftruncate_call ::*) bstmts
-                  else s :: call :: bstmts)
-            [] blk.Cil.bstmts
-          |> List.rev
-        in
-        blk.bstmts <- bstmts;
+                          s
+                          :: (*call ::*)
+                             (*ftruncate_call ::*)
+                             bstmts
+                        else s :: call :: bstmts *)
+                     s :: bstmts)
+               [] blk.Cil.bstmts
+             |> List.rev
+           in
+           blk.bstmts <- bstmts; *)
         Cil.DoChildren
+
+      method! vstmt stmt =
+        let action s =
+          let loc = Cil.get_stmtLoc s.Cil.skind in
+          if loc.line < 0 then s
+          else
+            let call =
+              if !Cmdline.mmap then
+                strcpy_of strcpy mmap loc |> Cil.mkStmtOneInstr
+              else printf_of printf stream loc |> Cil.mkStmtOneInstr
+            in
+            let mmap_inc =
+              Cil.Set
+                ( (Cil.Var mmap, Cil.NoOffset),
+                  Cil.BinOp
+                    ( Cil.PlusPI,
+                      Cil.Lval (Cil.Var mmap, Cil.NoOffset),
+                      Cil.Const
+                        (Cil.CInt64
+                           ( (loc.Cil.file |> String.length)
+                             + (loc.Cil.line |> string_of_int |> String.length)
+                             + 2
+                             |> Int64.of_int,
+                             Cil.IInt,
+                             None )),
+                      Cil.intType ),
+                  loc )
+              |> Cil.mkStmtOneInstr
+            in
+            let check_var_name =
+              "__"
+              ^ (loc.file
+                |> String.map (fun c ->
+                       if c = '/' || c = '.' || c = '-' then '_' else c))
+              ^ "_"
+              ^ (loc.line |> string_of_int)
+            in
+            let check_var = Cil.makeGlobalVar check_var_name Cil.intType in
+            if !Cmdline.mmap then
+              glob_check_vars := VarSet.add check_var_name !glob_check_vars;
+            let var_used =
+              Cil.Set ((Cil.Var check_var, Cil.NoOffset), Cil.one, loc)
+              |> Cil.mkStmtOneInstr
+            in
+            let empty_block = [ Cil.mkEmptyStmt () ] |> Cil.mkBlock in
+            let call =
+              if !Cmdline.mmap then
+                Cil.If
+                  ( Cil.UnOp
+                      ( Cil.LNot,
+                        Cil.Lval (Cil.Var check_var, Cil.NoOffset),
+                        Cil.intType ),
+                    [ call; mmap_inc; var_used ]
+                    |> Cil.compactStmts |> Cil.mkBlock,
+                    empty_block,
+                    loc )
+                |> Cil.mkStmt
+              else call
+            in
+            let result =
+              if (not !Cmdline.no_seg) && !Cmdline.mmap then [ call; s ]
+              else if (not !Cmdline.no_seg) && not !Cmdline.mmap then
+                let flush = flush_of flush stream loc |> Cil.mkStmtOneInstr in
+                [ call; flush; s ]
+              else if !Cmdline.mmap then [ call; s ]
+              else [ call; s ]
+            in
+            Cil.Block (result |> Cil.mkBlock) |> Cil.mkStmt
+        in
+        Cil.ChangeDoChildrenPost (stmt, action)
+
+      method! vinst instr =
+        let action is =
+          match is with
+          | [ i ] ->
+              let loc = Cil.get_instrLoc i in
+              let check_var_name =
+                "__"
+                ^ (loc.file
+                  |> String.map (fun c ->
+                         if c = '/' || c = '.' || c = '-' then '_' else c))
+                ^ "_"
+                ^ (loc.line |> string_of_int)
+              in
+              let check_var = Cil.makeGlobalVar check_var_name Cil.intType in
+              if !Cmdline.mmap then
+                glob_check_vars := VarSet.add check_var_name !glob_check_vars;
+              let call =
+                if !Cmdline.mmap then
+                  append_coverage_of append_coverage check_var loc
+                else printf_of printf stream loc
+              in
+              let var_used =
+                Cil.Set ((Cil.Var check_var, Cil.NoOffset), Cil.one, loc)
+              in
+              if (not !Cmdline.no_seg) && !Cmdline.mmap then
+                [ call; var_used; i ]
+              else if (not !Cmdline.no_seg) && not !Cmdline.mmap then
+                let flush = flush_of flush stream loc in
+                [ call; flush; i ]
+              else if !Cmdline.mmap then [ call; var_used; i ]
+              else [ call; i ]
+          | _ -> is
+        in
+        Cil.ChangeDoChildrenPost ([ instr ], action)
     end
 
   let instrument work_dir origin_file_opt pt_file =
@@ -993,6 +1165,19 @@ module Coverage = struct
           Cil.findOrCreateFunc cil "fflush"
             (Cil.TFun (Cil.voidType, Some [ ("stream", fileptr, []) ], false, []))
         in
+        let append_coverage =
+          Cil.findOrCreateFunc cil "append_coverage"
+            (Cil.TFun
+               ( Cil.voidType,
+                 Some
+                   [
+                     ("check_var", Cil.intType, []);
+                     ("cov_data", Cil.charConstPtrType, []);
+                     ("cov_data_len", Cil.intType, []);
+                   ],
+                 false,
+                 [] ))
+        in
         let stream = Cil.makeGlobalVar "__inst_stream" fileptr in
         let mmap = Cil.makeGlobalVar "__inst_mmap" Cil.charPtrType in
         let mmap_size = Cil.makeGlobalVar "__inst_mmap_size" Cil.intType in
@@ -1022,10 +1207,24 @@ module Coverage = struct
                  false,
                  [] ))
         in
+        let glob_check_vars = ref VarSet.empty in
         Cil.visitCilFile
           (new instrumentVisitor
-             printf flush stream strcpy mmap mmap_size stream_fd ftruncate)
+             printf flush stream strcpy mmap mmap_size stream_fd ftruncate
+             append_coverage glob_check_vars)
           cil;
+        VarSet.iter
+          (fun v ->
+            let tmp_glob_var = Cil.makeGlobalVar v Cil.intType in
+            tmp_glob_var.vstorage <- Cil.Static;
+            cil.globals <-
+              Cil.GVar
+                ( tmp_glob_var,
+                  { init = Some (Cil.SingleInit Cil.zero) },
+                  Cil.locUnknown )
+              :: cil.globals)
+          !glob_check_vars;
+        (* glob_var_whole_set := VarSet.union !glob_var_whole_set !glob_check_vars; *)
         Unix.system
           ("cp " ^ origin_file ^ " "
           ^ Filename.remove_extension origin_file
@@ -1035,6 +1234,11 @@ module Coverage = struct
         then ()
         else
           let oc = open_out origin_file in
+          (* List.iter
+               (fun x ->
+                 Pretty.sprint ~width:100 (Cil.d_shortglobal () x) |> print_endline)
+               cil.globals;
+             failwith ""; *)
           Cil.dumpFile !Cil.printerForMaincil oc "" cil;
           close_out oc);
         if
@@ -1045,6 +1249,8 @@ module Coverage = struct
               "/experiment/src/libtiff/tif_unix.c";
               "/experiment/src/src/http_auth.c";
               "/experiment/src/main/main.c";
+              "/experiment/src/Modules/main.c";
+              "/experiment/src/Parser/tokenizer_pgen.c";
               "/experiment/src/version.c";
             ]
         then append_constructor work_dir origin_file "coverage"
@@ -1587,7 +1793,8 @@ module Coverage = struct
                   let loc = Cil.get_stmtLoc s.Cil.skind in
                   let call =
                     (if !Cmdline.mmap then strcpy_of strcpy mmap loc
-                    else printf_of printf stream loc) |> Cil.mkStmtOneInstr
+                    else printf_of printf stream loc)
+                    |> Cil.mkStmtOneInstr
                   in
                   let mmap_inc =
                     Cil.Set
@@ -1605,12 +1812,14 @@ module Coverage = struct
                                    Cil.IInt,
                                    None )),
                             Cil.intType ),
-                        loc ) |> Cil.mkStmtOneInstr
+                        loc )
+                    |> Cil.mkStmtOneInstr
                   in
                   if !Cmdline.mmap then
-                    (s :: mmap_inc :: call :: (assertion_instr |> Cil.mkStmtOneInstr)
-                    :: bstmts,
-                    conds)
+                    ( s :: mmap_inc :: call
+                      :: (assertion_instr |> Cil.mkStmtOneInstr)
+                      :: bstmts,
+                      conds )
                   else if not !Cmdline.no_seg then
                     let flush =
                       flush_of flush stream loc |> Cil.mkStmtOneInstr
@@ -1651,8 +1860,7 @@ module Coverage = struct
                                   Cil.intType ),
                               loc )
                         in
-                        if !Cmdline.mmap then
-                          i :: mmap_inc :: call :: is
+                        if !Cmdline.mmap then i :: mmap_inc :: call :: is
                         else if not !Cmdline.no_seg then
                           let flush = flush_of flush stream loc in
                           i :: flush :: call :: is
@@ -1666,7 +1874,8 @@ module Coverage = struct
                   let loc = Cil.get_stmtLoc s.Cil.skind in
                   let call =
                     (if !Cmdline.mmap then strcpy_of strcpy mmap loc
-                    else printf_of printf stream loc) |> Cil.mkStmtOneInstr
+                    else printf_of printf stream loc)
+                    |> Cil.mkStmtOneInstr
                   in
                   let mmap_inc =
                     Cil.Set
@@ -1684,7 +1893,8 @@ module Coverage = struct
                                    Cil.IInt,
                                    None )),
                             Cil.intType ),
-                        loc ) |> Cil.mkStmtOneInstr
+                        loc )
+                    |> Cil.mkStmtOneInstr
                   in
                   if not !Cmdline.no_seg then
                     let flush =
@@ -1711,7 +1921,7 @@ module Coverage = struct
     end
 
   class assumeInjector printf flush stream assume_line_list condition_table
-    is_pos strcpy mmap =
+    is_pos strcpy mmap append_coverage glob_check_vars =
     object
       inherit Cil.nopCilVisitor
 
@@ -1724,149 +1934,88 @@ module Coverage = struct
         if fd.Cil.svar.vname = "bugzoo_ctor" then SkipChildren else DoChildren
 
       method! vblock blk =
-        let bstmts =
-          List.fold_left
-            (fun bstmts s ->
-              match s.Cil.skind with
-              | Cil.If (exp, thenb, elseb, ifloc)
-                when List.mem ifloc.Cil.line assume_line_list ->
-                  let loc = Cil.get_stmtLoc s.Cil.skind in
-                  print_endline
-                    ("ifloc line: " ^ ifloc.Cil.file ^ ":"
-                    ^ (ifloc.Cil.line |> string_of_int));
-                  (* failwith "assume if"; *)
-                  Pretty.sprint 10 (Cil.printExp Cil.defaultCilPrinter () exp)
-                  |> print_endline;
-
-                  let tr = Cil.Const (Cil.CInt64 (1L, Cil.IInt, None)) in
-                  let fl = Cil.Const (Cil.CInt64 (0L, Cil.IInt, None)) in
-                  let new_s =
-                    Cil.If ((if is_pos then tr else fl), thenb, elseb, ifloc)
-                    |> Cil.mkStmt
-                  in
-
-                  let loc = Cil.get_stmtLoc s.Cil.skind in
-                  let call =
-                    (if !Cmdline.mmap then strcpy_of strcpy mmap loc
-                    else printf_of printf stream loc) |> Cil.mkStmtOneInstr
-                  in
-                  let mmap_inc =
-                    Cil.Set
-                      ( (Cil.Var mmap, Cil.NoOffset),
-                        Cil.BinOp
-                          ( Cil.PlusPI,
-                            Cil.Lval (Cil.Var mmap, Cil.NoOffset),
-                            Cil.Const
-                              (Cil.CInt64
-                                 ( (loc.Cil.file |> String.length)
-                                   + (loc.Cil.line |> string_of_int
-                                    |> String.length)
-                                   + 2
-                                   |> Int64.of_int,
-                                   Cil.IInt,
-                                   None )),
-                            Cil.intType ),
-                        loc ) |> Cil.mkStmtOneInstr
-                  in
-                  if !Cmdline.mmap then new_s :: mmap_inc :: call :: bstmts
-                  else if not !Cmdline.no_seg then
-                    let flush =
-                      flush_of flush stream loc |> Cil.mkStmtOneInstr
-                    in
-                    new_s :: flush :: call :: bstmts
-                  else new_s :: call :: bstmts
-              | Cil.Instr insts ->
-                  let new_insts =
-                    List.fold_left
-                      (fun is i ->
-                        let loc = Cil.get_instrLoc i in
-                        let call =
-                          if !Cmdline.mmap then strcpy_of strcpy mmap loc
-                          else printf_of printf stream loc
-                        in
-                        let mmap_inc =
-                          Cil.Set
-                            ( (Cil.Var mmap, Cil.NoOffset),
-                              Cil.BinOp
-                                ( Cil.PlusPI,
-                                  Cil.Lval (Cil.Var mmap, Cil.NoOffset),
-                                  Cil.Const
-                                    (Cil.CInt64
-                                       ( (loc.Cil.file |> String.length)
-                                         + (loc.Cil.line |> string_of_int
-                                          |> String.length)
-                                         + 2
-                                         |> Int64.of_int,
-                                         Cil.IInt,
-                                         None )),
-                                  Cil.intType ),
-                              loc )
-                        in
-                        if !Cmdline.mmap then i :: mmap_inc :: call :: is
-                        else if not !Cmdline.no_seg then
-                          let flush = flush_of flush stream loc in
-                          i :: flush :: call :: is
-                        else i :: call :: is)
-                      [] insts
-                    |> List.rev
-                  in
-                  s.skind <- Cil.Instr new_insts;
-                  s :: bstmts
-              | _ ->
-                  let loc = Cil.get_stmtLoc s.Cil.skind in
-                  let call =
-                    (if !Cmdline.mmap then strcpy_of strcpy mmap loc
-                    else printf_of printf stream loc) |> Cil.mkStmtOneInstr
-                  in
-                  let mmap_inc =
-                    Cil.Set
-                      ( (Cil.Var mmap, Cil.NoOffset),
-                        Cil.BinOp
-                          ( Cil.PlusPI,
-                            Cil.Lval (Cil.Var mmap, Cil.NoOffset),
-                            Cil.Const
-                              (Cil.CInt64
-                                 ( (loc.Cil.file |> String.length)
-                                   + (loc.Cil.line |> string_of_int
-                                    |> String.length)
-                                   + 2
-                                   |> Int64.of_int,
-                                   Cil.IInt,
-                                   None )),
-                            Cil.intType ),
-                        loc ) |> Cil.mkStmtOneInstr
-                  in
-                  if !Cmdline.mmap then s :: mmap_inc :: call :: bstmts
-                  else if not !Cmdline.no_seg then
-                    let flush =
-                      flush_of flush stream loc |> Cil.mkStmtOneInstr
-                    in
-                    s :: flush :: call :: bstmts
-                  else s :: call :: bstmts)
-            [] blk.Cil.bstmts
-          |> List.rev
-        in
-
-        (* List.iter
-           (fun cond ->
-             List.iter
-               (fun (vname, exp) ->
-                 print_endline ("vname: " ^ vname);
-                 if Hashtbl.mem condition_table vname then ()
-                 else Hashtbl.add condition_table vname exp)
-               (var_names_of cond))
-           conditions; *)
         (* let bstmts =
              List.fold_left
                (fun bstmts s ->
                  match s.Cil.skind with
+                 | Cil.If (exp, thenb, elseb, ifloc)
+                   when List.mem ifloc.Cil.line assume_line_list ->
+                     let loc = Cil.get_stmtLoc s.Cil.skind in
+                     print_endline
+                       ("ifloc line: " ^ ifloc.Cil.file ^ ":"
+                       ^ (ifloc.Cil.line |> string_of_int));
+                     (* failwith "assume if"; *)
+                     Pretty.sprint 10 (Cil.printExp Cil.defaultCilPrinter () exp)
+                     |> print_endline;
+
+                     let tr = Cil.Const (Cil.CInt64 (1L, Cil.IInt, None)) in
+                     let fl = Cil.Const (Cil.CInt64 (0L, Cil.IInt, None)) in
+                     let new_s =
+                       Cil.If ((if is_pos then tr else fl), thenb, elseb, ifloc)
+                       |> Cil.mkStmt
+                     in
+
+                     let loc = Cil.get_stmtLoc s.Cil.skind in
+                     let call =
+                       (if !Cmdline.mmap then strcpy_of strcpy mmap loc
+                       else printf_of printf stream loc)
+                       |> Cil.mkStmtOneInstr
+                     in
+                     let mmap_inc =
+                       Cil.Set
+                         ( (Cil.Var mmap, Cil.NoOffset),
+                           Cil.BinOp
+                             ( Cil.PlusPI,
+                               Cil.Lval (Cil.Var mmap, Cil.NoOffset),
+                               Cil.Const
+                                 (Cil.CInt64
+                                    ( (loc.Cil.file |> String.length)
+                                      + (loc.Cil.line |> string_of_int
+                                       |> String.length)
+                                      + 2
+                                      |> Int64.of_int,
+                                      Cil.IInt,
+                                      None )),
+                               Cil.intType ),
+                           loc )
+                       |> Cil.mkStmtOneInstr
+                     in
+                     if !Cmdline.mmap then new_s :: mmap_inc :: call :: bstmts
+                     else if not !Cmdline.no_seg then
+                       let flush =
+                         flush_of flush stream loc |> Cil.mkStmtOneInstr
+                       in
+                       new_s :: flush :: call :: bstmts
+                     else new_s :: call :: bstmts
                  | Cil.Instr insts ->
                      let new_insts =
                        List.fold_left
                          (fun is i ->
                            let loc = Cil.get_instrLoc i in
-                           let call = printf_of printf stream loc in
-                           if not !Cmdline.no_seg then
+                           let call =
+                             if !Cmdline.mmap then strcpy_of strcpy mmap loc
+                             else printf_of printf stream loc
+                           in
+                           let mmap_inc =
+                             Cil.Set
+                               ( (Cil.Var mmap, Cil.NoOffset),
+                                 Cil.BinOp
+                                   ( Cil.PlusPI,
+                                     Cil.Lval (Cil.Var mmap, Cil.NoOffset),
+                                     Cil.Const
+                                       (Cil.CInt64
+                                          ( (loc.Cil.file |> String.length)
+                                            + (loc.Cil.line |> string_of_int
+                                             |> String.length)
+                                            + 2
+                                            |> Int64.of_int,
+                                            Cil.IInt,
+                                            None )),
+                                     Cil.intType ),
+                                 loc )
+                           in
+                           if !Cmdline.mmap then i :: mmap_inc :: call :: is
+                           else if not !Cmdline.no_seg then
                              let flush = flush_of flush stream loc in
                              i :: flush :: call :: is
                            else i :: call :: is)
@@ -1878,9 +2027,31 @@ module Coverage = struct
                  | _ ->
                      let loc = Cil.get_stmtLoc s.Cil.skind in
                      let call =
-                       printf_of printf stream loc |> Cil.mkStmtOneInstr
+                       (if !Cmdline.mmap then strcpy_of strcpy mmap loc
+                       else printf_of printf stream loc)
+                       |> Cil.mkStmtOneInstr
                      in
-                     if not !Cmdline.no_seg then
+                     let mmap_inc =
+                       Cil.Set
+                         ( (Cil.Var mmap, Cil.NoOffset),
+                           Cil.BinOp
+                             ( Cil.PlusPI,
+                               Cil.Lval (Cil.Var mmap, Cil.NoOffset),
+                               Cil.Const
+                                 (Cil.CInt64
+                                    ( (loc.Cil.file |> String.length)
+                                      + (loc.Cil.line |> string_of_int
+                                       |> String.length)
+                                      + 2
+                                      |> Int64.of_int,
+                                      Cil.IInt,
+                                      None )),
+                               Cil.intType ),
+                           loc )
+                       |> Cil.mkStmtOneInstr
+                     in
+                     if !Cmdline.mmap then s :: mmap_inc :: call :: bstmts
+                     else if not !Cmdline.no_seg then
                        let flush =
                          flush_of flush stream loc |> Cil.mkStmtOneInstr
                        in
@@ -1888,9 +2059,202 @@ module Coverage = struct
                      else s :: call :: bstmts)
                [] blk.Cil.bstmts
              |> List.rev
-           in *)
-        blk.bstmts <- bstmts;
+           in
+
+           (* List.iter
+              (fun cond ->
+                List.iter
+                  (fun (vname, exp) ->
+                    print_endline ("vname: " ^ vname);
+                    if Hashtbl.mem condition_table vname then ()
+                    else Hashtbl.add condition_table vname exp)
+                  (var_names_of cond))
+              conditions; *)
+           (* let bstmts =
+                List.fold_left
+                  (fun bstmts s ->
+                    match s.Cil.skind with
+                    | Cil.Instr insts ->
+                        let new_insts =
+                          List.fold_left
+                            (fun is i ->
+                              let loc = Cil.get_instrLoc i in
+                              let call = printf_of printf stream loc in
+                              if not !Cmdline.no_seg then
+                                let flush = flush_of flush stream loc in
+                                i :: flush :: call :: is
+                              else i :: call :: is)
+                            [] insts
+                          |> List.rev
+                        in
+                        s.skind <- Cil.Instr new_insts;
+                        s :: bstmts
+                    | _ ->
+                        let loc = Cil.get_stmtLoc s.Cil.skind in
+                        let call =
+                          printf_of printf stream loc |> Cil.mkStmtOneInstr
+                        in
+                        if not !Cmdline.no_seg then
+                          let flush =
+                            flush_of flush stream loc |> Cil.mkStmtOneInstr
+                          in
+                          s :: flush :: call :: bstmts
+                        else s :: call :: bstmts)
+                  [] blk.Cil.bstmts
+                |> List.rev
+              in *)
+           blk.bstmts <- bstmts; *)
         Cil.DoChildren
+
+      method! vstmt stmt =
+        let action s =
+          let result =
+            match s.Cil.skind with
+            | Cil.If (exp, thenb, elseb, ifloc)
+              when List.mem ifloc.Cil.line assume_line_list ->
+                let loc = Cil.get_stmtLoc s.Cil.skind in
+                print_endline
+                  ("ifloc line: " ^ ifloc.Cil.file ^ ":"
+                  ^ (ifloc.Cil.line |> string_of_int));
+                (* failwith "assume if"; *)
+                Pretty.sprint 10 (Cil.printExp Cil.defaultCilPrinter () exp)
+                |> print_endline;
+
+                let tr = Cil.Const (Cil.CInt64 (1L, Cil.IInt, None)) in
+                let fl = Cil.Const (Cil.CInt64 (0L, Cil.IInt, None)) in
+                let new_s =
+                  Cil.If ((if is_pos then tr else fl), thenb, elseb, ifloc)
+                  |> Cil.mkStmt
+                in
+
+                let loc = Cil.get_stmtLoc s.Cil.skind in
+                let call =
+                  (if !Cmdline.mmap then strcpy_of strcpy mmap loc
+                  else printf_of printf stream loc)
+                  |> Cil.mkStmtOneInstr
+                in
+                let mmap_inc =
+                  Cil.Set
+                    ( (Cil.Var mmap, Cil.NoOffset),
+                      Cil.BinOp
+                        ( Cil.PlusPI,
+                          Cil.Lval (Cil.Var mmap, Cil.NoOffset),
+                          Cil.Const
+                            (Cil.CInt64
+                               ( (loc.Cil.file |> String.length)
+                                 + (loc.Cil.line |> string_of_int
+                                  |> String.length)
+                                 + 2
+                                 |> Int64.of_int,
+                                 Cil.IInt,
+                                 None )),
+                          Cil.intType ),
+                      loc )
+                  |> Cil.mkStmtOneInstr
+                in
+                let check_var_name =
+                  "__"
+                  ^ (loc.file
+                    |> String.map (fun c ->
+                           if c = '/' || c = '.' || c = '-' then '_' else c))
+                  ^ "_"
+                  ^ (loc.line |> string_of_int)
+                in
+                let check_var = Cil.makeGlobalVar check_var_name Cil.intType in
+                if !Cmdline.mmap then
+                  glob_check_vars := VarSet.add check_var_name !glob_check_vars;
+                let var_used =
+                  Cil.Set ((Cil.Var check_var, Cil.NoOffset), Cil.one, loc)
+                  |> Cil.mkStmtOneInstr
+                in
+                let empty_block = [ Cil.mkEmptyStmt () ] |> Cil.mkBlock in
+                let call =
+                  if !Cmdline.mmap then
+                    Cil.If
+                      ( Cil.UnOp
+                          ( Cil.LNot,
+                            Cil.Lval (Cil.Var check_var, Cil.NoOffset),
+                            Cil.intType ),
+                        [ call; mmap_inc; var_used ]
+                        |> Cil.compactStmts |> Cil.mkBlock,
+                        empty_block,
+                        loc )
+                    |> Cil.mkStmt
+                  else call
+                in
+                if !Cmdline.mmap then [ call; new_s ]
+                else if not !Cmdline.no_seg then
+                  let flush = flush_of flush stream loc |> Cil.mkStmtOneInstr in
+                  [ call; flush; new_s ]
+                else [ call; new_s ]
+            | _ ->
+                let loc = Cil.get_stmtLoc s.Cil.skind in
+                let call =
+                  (if !Cmdline.mmap then strcpy_of strcpy mmap loc
+                  else printf_of printf stream loc)
+                  |> Cil.mkStmtOneInstr
+                in
+                let mmap_inc =
+                  Cil.Set
+                    ( (Cil.Var mmap, Cil.NoOffset),
+                      Cil.BinOp
+                        ( Cil.PlusPI,
+                          Cil.Lval (Cil.Var mmap, Cil.NoOffset),
+                          Cil.Const
+                            (Cil.CInt64
+                               ( (loc.Cil.file |> String.length)
+                                 + (loc.Cil.line |> string_of_int
+                                  |> String.length)
+                                 + 2
+                                 |> Int64.of_int,
+                                 Cil.IInt,
+                                 None )),
+                          Cil.intType ),
+                      loc )
+                  |> Cil.mkStmtOneInstr
+                in
+                if !Cmdline.mmap then [ call; s ]
+                else if not !Cmdline.no_seg then
+                  let flush = flush_of flush stream loc |> Cil.mkStmtOneInstr in
+                  [ call; flush; s ]
+                else [ call; s ]
+          in
+          Cil.Block (result |> Cil.mkBlock) |> Cil.mkStmt
+        in
+        Cil.ChangeDoChildrenPost (stmt, action)
+
+      method! vinst instr =
+        let action is =
+          match is with
+          | [ i ] ->
+              let loc = Cil.get_instrLoc i in
+              let check_var_name =
+                "__"
+                ^ (loc.file
+                  |> String.map (fun c ->
+                         if c = '/' || c = '.' || c = '-' then '_' else c))
+                ^ "_"
+                ^ (loc.line |> string_of_int)
+              in
+              let check_var = Cil.makeGlobalVar check_var_name Cil.intType in
+              if !Cmdline.mmap then
+                glob_check_vars := VarSet.add check_var_name !glob_check_vars;
+              let call =
+                if !Cmdline.mmap then
+                  append_coverage_of append_coverage check_var loc
+                else printf_of printf stream loc
+              in
+              let var_used =
+                Cil.Set ((Cil.Var check_var, Cil.NoOffset), Cil.one, loc)
+              in
+              if !Cmdline.mmap then [ call; var_used; i ]
+              else if not !Cmdline.no_seg then
+                let flush = flush_of flush stream loc in
+                [ call; flush; i ]
+              else [ call; i ]
+          | _ -> is
+        in
+        Cil.ChangeDoChildrenPost ([ instr ], action)
     end
 
   let signal_checker work_dir origin_file_opt pt_file signal_table signal_list =
@@ -2030,6 +2394,8 @@ module Coverage = struct
               "/experiment/src/libtiff/tif_unix.c";
               "/experiment/src/src/http_auth.c";
               "/experiment/src/main/main.c";
+              "/experiment/src/Modules/main.c";
+              "/experiment/src/Parser/tokenizer_pgen.c";
               "/experiment/src/version.c";
             ]
         then append_constructor work_dir origin_file "output"
@@ -2111,6 +2477,8 @@ module Coverage = struct
               "/experiment/src/libtiff/tif_unix.c";
               "/experiment/src/src/http_auth.c";
               "/experiment/src/main/main.c";
+              "/experiment/src/Modules/main.c";
+              "/experiment/src/Parser/tokenizer_pgen.c";
               "/experiment/src/version.c";
             ]
         then append_constructor work_dir origin_file "coverage");
@@ -2159,6 +2527,19 @@ module Coverage = struct
           Cil.findOrCreateFunc cil "fflush"
             (Cil.TFun (Cil.voidType, Some [ ("stream", fileptr, []) ], false, []))
         in
+        let append_coverage =
+          Cil.findOrCreateFunc cil "append_coverage"
+            (Cil.TFun
+               ( Cil.voidType,
+                 Some
+                   [
+                     ("check_var", Cil.intType, []);
+                     ("cov_data", Cil.charConstPtrType, []);
+                     ("cov_data_len", Cil.intType, []);
+                   ],
+                 false,
+                 [] ))
+        in
         let stream = Cil.makeGlobalVar "__inst_stream" fileptr in
         let mmap = Cil.makeGlobalVar "__inst_mmap" Cil.charPtrType in
         cil.globals <- Cil.GVarDecl (stream, Cil.locUnknown) :: cil.globals;
@@ -2201,41 +2582,59 @@ module Coverage = struct
             String.ends_with
               (Filename.remove_extension assume_file)
               (origin_file |> Filename.remove_extension)
-          then
+          then (
             (* failwith ("assume_file: " ^ assume_file); *)
+            let glob_check_vars = ref VarSet.empty in
             Cil.visitCilFile
               (new assumeInjector
-                 printf flush stream assume_list condition_table is_pos strcpy mmap)
+                 printf flush stream assume_list condition_table is_pos strcpy
+                 mmap append_coverage glob_check_vars)
               cil;
-        (* Hashtbl.iter
-           (fun name exp -> print_endline ("Hashtbl vname: " ^ name))
-           condition_table; *)
-        (if List.mem (Filename.basename origin_file) [ "proc_open.c"; "cast.c" ]
-        then ()
-        else
-          let oc = open_out origin_file in
-          Cil.dumpFile !Cil.printerForMaincil oc "" cil;
-          close_out oc;
-          if
-            String.ends_with
-              (Filename.remove_extension !Cmdline.inject_file)
-              (origin_file |> Filename.remove_extension)
-          then
-            Unix.system
-              ("sed -i \"s/void assert(int condition ) ;/#include \
-                <assert.h>/\" " ^ origin_file)
-            |> ignore);
-        if
-          List.mem
-            (Unix.realpath origin_file)
-            [
-              "/experiment/src/gzip.c";
-              "/experiment/src/libtiff/tif_unix.c";
-              "/experiment/src/src/http_auth.c";
-              "/experiment/src/main/main.c";
-              "/experiment/src/version.c";
-            ]
-        then append_constructor work_dir origin_file "coverage"
+            VarSet.iter
+              (fun v ->
+                let tmp_glob_var = Cil.makeGlobalVar v Cil.intType in
+                tmp_glob_var.vstorage <- Cil.Static;
+                cil.globals <-
+                  Cil.GVar
+                    ( tmp_glob_var,
+                      { init = Some (Cil.SingleInit Cil.zero) },
+                      Cil.locUnknown )
+                  :: cil.globals)
+              !glob_check_vars;
+            (* Hashtbl.iter
+               (fun name exp -> print_endline ("Hashtbl vname: " ^ name))
+               condition_table; *)
+            (if
+             List.mem
+               (Filename.basename origin_file)
+               [ "proc_open.c"; "cast.c" ]
+            then ()
+            else
+              let oc = open_out origin_file in
+              Cil.dumpFile !Cil.printerForMaincil oc "" cil;
+              close_out oc;
+              if
+                String.ends_with
+                  (Filename.remove_extension !Cmdline.inject_file)
+                  (origin_file |> Filename.remove_extension)
+              then
+                Unix.system
+                  ("sed -i \"s/void assert(int condition ) ;/#include \
+                    <assert.h>/\" " ^ origin_file)
+                |> ignore);
+            if
+              List.mem
+                (Unix.realpath origin_file)
+                [
+                  "/experiment/src/gzip.c";
+                  "/experiment/src/libtiff/tif_unix.c";
+                  "/experiment/src/src/http_auth.c";
+                  "/experiment/src/main/main.c";
+                  "/experiment/src/Modules/main.c";
+                  "/experiment/src/Parser/tokenizer_pgen.c";
+                  "/experiment/src/version.c";
+                ]
+            then append_constructor work_dir origin_file "coverage")
 
   let run work_dir src_dir =
     Utils.traverse_pp_file
@@ -2386,6 +2785,8 @@ module Coverage = struct
               "/experiment/src/libtiff/tif_unix.c";
               "/experiment/src/src/http_auth.c";
               "/experiment/src/main/main.c";
+              "/experiment/src/Modules/main.c";
+              "/experiment/src/Parser/tokenizer_pgen.c";
               "/experiment/src/version.c";
             ]
         then append_constructor work_dir origin_file "output")
